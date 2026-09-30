@@ -306,6 +306,17 @@ public:
 
 	virtual config_t *Config() const override;
 
+	/* WebMIX: the narrow surface the embedded web frontend uses for the few
+	 * operations obs-websocket cannot express at all.  These mirror the
+	 * corresponding UI actions but skip their modal dialogs, which would hang
+	 * a headless instance.  Implemented in frontend/webmix/OBSBasic_WebMix.cpp;
+	 * the web UI asks for confirmation itself before calling them. */
+	bool WebMixMoveScene(int fromIndex, int toIndex);
+	bool WebMixAddTransition(const QString &id, const QString &name);
+	bool WebMixRenameTransition(const QString &name, const QString &newName);
+	bool WebMixRemoveTransition(const QString &name);
+	QStringList WebMixTransitionNames() const;
+
 	int ResetVideo();
 	bool ResetAudio();
 

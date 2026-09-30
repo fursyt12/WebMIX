@@ -308,6 +308,54 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		return;
 	}
 
+	/* --- operations obs-websocket has no request for ----------------------- */
+	if (path.startsWith("/api/hotkeys") || path.startsWith("/api/scenes/") ||
+	    path.startsWith("/api/transitions/")) {
+		if (path == "/api/hotkeys" && method == "GET") {
+			QJsonObject payload;
+			payload["hotkeys"] = WebMixBridge::Hotkeys();
+			SendJson(socket, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+			return;
+		}
+
+		if (method != "POST") {
+			SendError(socket, 405, "Method not allowed");
+			return;
+		}
+
+		QString error;
+		bool ok = false;
+		if (path == "/api/hotkeys/bind") {
+			ok = WebMixBridge::SetHotkeyBinding(query.queryItemValue("name"), query.queryItemValue("key"),
+							    query.queryItemValue("modifiers"), error);
+		} else if (path == "/api/hotkeys/clear") {
+			ok = WebMixBridge::ClearHotkeyBinding(query.queryItemValue("name"), error);
+		} else if (path == "/api/scenes/move") {
+			ok = WebMixBridge::MoveScene(query.queryItemValue("from").toInt(),
+						     query.queryItemValue("to").toInt(), error);
+		} else if (path == "/api/transitions/add") {
+			ok = WebMixBridge::AddTransition(query.queryItemValue("kind"), query.queryItemValue("name"),
+							 error);
+		} else if (path == "/api/transitions/rename") {
+			ok = WebMixBridge::RenameTransition(query.queryItemValue("name"),
+							    query.queryItemValue("newName"), error);
+		} else if (path == "/api/transitions/remove") {
+			ok = WebMixBridge::RemoveTransition(query.queryItemValue("name"), error);
+		} else {
+			SendError(socket, 404, "Unknown endpoint");
+			return;
+		}
+
+		QJsonObject result;
+		result["ok"] = ok;
+		if (!ok) {
+			result["error"] = error;
+			blog(LOG_WARNING, "[WebMIX] %s failed: %s", qUtf8Printable(path), qUtf8Printable(error));
+		}
+		SendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact), ok ? 200 : 400);
+		return;
+	}
+
 	/* --- property schema (the WebMIX bridge) ------------------------------- */
 	if (path == "/api/properties/press" && method == "POST") {
 		QString error;
@@ -363,6 +411,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		status["shutdownEndpoint"] = true;
 		status["propertySchema"] = true;
 		status["previewStream"] = true;
+		status["operations"] = true;
 		SendJson(socket, QJsonDocument(status).toJson(QJsonDocument::Compact));
 		return;
 	}

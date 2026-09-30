@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
 
@@ -44,6 +45,23 @@ QJsonObject TransitionProperties(const QString &transitionName);
 /*! Invoke a button property. `scope` is "source" or "filter". */
 bool PressButton(const QString &scope, const QString &sourceName, const QString &filterName,
 		 const QString &propertyName, QString &error);
+
+/*! Every hotkey with its current bindings, formatted by OBS itself. */
+QJsonArray Hotkeys();
+
+/*! Replace the bindings of one hotkey. `keyName` is an OBS key name such as
+ *  "OBS_KEY_R"; `modifiers` is a comma separated list of control/alt/shift/command. */
+bool SetHotkeyBinding(const QString &hotkeyName, const QString &keyName, const QString &modifiers, QString &error);
+
+/*! Remove every binding from one hotkey. */
+bool ClearHotkeyBinding(const QString &hotkeyName, QString &error);
+
+/* ---- operations obs-websocket has no request for ---------------------- */
+
+bool MoveScene(int fromIndex, int toIndex, QString &error);
+bool AddTransition(const QString &id, const QString &name, QString &error);
+bool RenameTransition(const QString &name, const QString &newName, QString &error);
+bool RemoveTransition(const QString &name, QString &error);
 
 /*! Serialize an obs_properties_t tree; exposed for reuse and testing. */
 QJsonObject SerializeProperties(void *properties, void *settings);

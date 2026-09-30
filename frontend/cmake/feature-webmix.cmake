@@ -8,8 +8,10 @@
 target_sources(
   obs-studio
   PRIVATE
+    webmix/OBSBasic_WebMix.cpp
     webmix/WebMixBridge.cpp
     webmix/WebMixBridge.hpp
+    webmix/WebMixOperations.cpp
     webmix/WebMixPreview.cpp
     webmix/WebMixPreview.hpp
     webmix/WebMixServer.cpp
