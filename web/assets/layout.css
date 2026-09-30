@@ -1311,3 +1311,76 @@ body.obs-app {
   max-height: 46vh;
   overflow: auto;
 }
+
+/* ------------------------------------------------------------ multiview */
+
+.obs-multiview {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  display: flex;
+  flex-direction: column;
+  background: var(--obs-window-bg);
+}
+
+.obs-multiview-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-wide);
+  padding: var(--obs-padding-large) var(--obs-padding-wide);
+  border-bottom: 1px solid var(--obs-border);
+}
+
+.obs-multiview-title {
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.obs-multiview-status {
+  flex: 1 1 auto;
+  font-size: var(--obs-font-size-small, 10px);
+}
+
+.obs-multiview-body {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--obs-padding-wide);
+}
+
+.obs-multiview-frame {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  background: var(--obs-preview-bg);
+}
+
+.obs-multiview-frame canvas,
+.obs-multiview-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.obs-multiview-labels {
+  position: absolute;
+  pointer-events: none;
+}
+
+.obs-multiview-labels {
+  inset: 0;
+}
+
+.obs-multiview-label {
+  position: absolute;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--obs-padding-large);
+  padding: var(--obs-padding-large) var(--obs-padding-wide);
+  color: var(--obs-text);
+  font-size: var(--obs-font-size-small, 10px);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}

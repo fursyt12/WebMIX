@@ -58,6 +58,7 @@ WebHost=127.0.0.1
 | `POST /api/shutdown` | Shuts OBS down. This is what **File > Exit** calls, so OBS can be stopped from the browser. |
 | `GET /api/preview.mjpg` | Live preview: JPEG frames as `multipart/x-mixed-replace` (`source`, `width`, `height`, `fps`, `quality`). |
 | `GET /api/preview.jpg` | A single preview frame. |
+| `GET /api/preview/multiview.mjpg\|.jpg` | Every scene composed into one grid (like OBS's Multiview), optionally pinned with `scenes=a,b,c`. |
 | `GET /api/properties/source\|filter\|transition` | The real `obs_properties_t` schema (labels, types, ranges, list items, groups, visibility) plus current values. |
 | `POST /api/properties/press` | Invokes a button property. |
 | `POST /api/scenes/move` | Reorders scenes (no obs-websocket request exists). Indices are display order, `0` = top. |
@@ -216,6 +217,10 @@ Everything below operates the **live** OBS instance:
   Settings (Stream / Output / Video / Audio / Advanced / Hotkeys), About.
 * **Stats dock** — View > Docks > Stats, rendering the same figures as the
   Stats dialog (both are generated from one `statsRows()` source).
+* **Multiview** — View > Multiview opens a full-screen grid of every scene.
+  OBS composes the tiles server-side (program outlined, aspect-fitted, like the
+  desktop multiview) and the page streams them on the GPU with HTML labels and a
+  PROGRAM badge layered on top.
 * **Custom Browser Docks** — Docks > Custom Browser Docks... manages name/URL
   pairs, each rendered as a dock in a right-hand column and toggleable from the
   Docks menu, like OBS.
@@ -269,6 +274,15 @@ Two implementation details worth knowing:
 upload → render → GPU readback) in one call and returns the dominant colours. It
 is what the live check asserts on, because headless compositors do not reliably
 include WebGPU canvas contents in screenshots.
+
+### Colour order
+
+OBS stores colours as `0xAABBGGRR` — **red in the low byte** (`vec4_from_rgba()`
+in `libobs/graphics/vec4.h` memcpy's the integer straight into an R,G,B,A byte
+array). That is the opposite of the CSS convention, so `colorIntToHex()` /
+`hexToColorInt()` in `src/properties.js` do the swap; getting it wrong shows red
+and blue exchanged in every colour picker, and the live check pins it by reading
+a red source's colour back out of OBS.
 
 ## Known gaps (and why)
 

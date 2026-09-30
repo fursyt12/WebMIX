@@ -118,6 +118,7 @@ export const MENU_TREE = [
       { id: 'toggleStatusBar', label: '&Status Bar', type: 'check', checked: true, action: 'toggleStatusBar' },
       sep(),
       { id: 'stats', label: 'Stats', action: 'openStats' },
+      { id: 'multiview', label: 'Multiview', action: 'openMultiview' },
       sep(),
       { id: 'actionAlwaysOnTop', label: '&Always On Top', type: 'check', action: 'alwaysOnTop' },
     ],

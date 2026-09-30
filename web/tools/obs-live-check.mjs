@@ -478,6 +478,108 @@ try {
   });
   await delay(200);
 
+  // Multiview: OBS composes the grid server-side. Verify from the browser that
+  // the tiles land where the scene order says they should.
+  const { result: multivewResult } = await cdp.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const scenes = window.webmix.store.state.scenes.map((s) => s.sceneName);
+      const response = await fetch('api/preview/multiview.jpg?width=640&height=360&quality=92');
+      const bitmap = await createImageBitmap(await response.blob());
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(bitmap, 0, 0);
+      const at = (x, y) => Array.from(ctx.getImageData(x, y, 1, 1).data).slice(0, 3);
+      const columns = Math.ceil(Math.sqrt(scenes.length));
+      const rows = Math.ceil(scenes.length / columns);
+      const tiles = [];
+      for (let i = 0; i < Math.min(scenes.length, 4); i++) {
+        const cx = Math.floor(((i % columns) + 0.5) * (bitmap.width / columns));
+        const cy = Math.floor((Math.floor(i / columns) + 0.5) * (bitmap.height / rows));
+        tiles.push({ scene: scenes[i], rgb: at(cx, cy) });
+      }
+      // A scene with a colour source renders a saturated tile.
+      const saturated = tiles.filter((t) => {
+        const [r, g, b] = t.rgb;
+        return Math.max(r, g, b) > 100;
+      }).length;
+      return JSON.stringify({ status: response.status, scenes: scenes.length, columns, rows, tiles, saturated });
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  let multiview = {};
+  try {
+    multiview = JSON.parse(multivewResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  multiview: ${JSON.stringify(multiview)}`);
+  check('multiview frame is served', multiview.status === 200 && multiview.scenes >= 3);
+  check('multiview grid matches the scene count', multiview.columns >= 2 && multiview.rows >= 1);
+  check('multiview tiles show scene content', (multiview.saturated ?? 0) >= 2);
+
+  // The multiview overlay renders labels for every tile.
+  await cdp.send('Runtime.evaluate', {
+    expression: `window.webmix.ui.dispatch('openMultiview')`,
+    awaitPromise: true,
+  });
+  await delay(1500);
+  const { result: overlayResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify({
+      overlay: !!document.querySelector('.obs-multiview'),
+      labels: [...document.querySelectorAll('.obs-multiview-label')].map((el) => el.textContent.trim()),
+      canvas: !!document.querySelector('.obs-multiview-frame canvas'),
+      status: document.querySelector('.obs-multiview-status')?.textContent ?? '',
+    })`,
+    returnByValue: true,
+  });
+  let overlay = {};
+  try {
+    overlay = JSON.parse(overlayResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  multiview overlay: ${JSON.stringify(overlay)}`);
+  check('multiview overlay opens with a label per scene', overlay.overlay === true && overlay.labels.length >= 3);
+  check('multiview overlay draws on the GPU', overlay.canvas === true);
+
+  const multiviewShot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+  writeFileSync(SCREENSHOT.replace(/\.png$/, '-multiview.png'), Buffer.from(multiviewShot.data, 'base64'));
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('.obs-multiview-close')?.click()`,
+  });
+  await delay(300);
+
+  // Colours: OBS uses 0xAABBGGRR, so red is 0x0000FF in the low byte. A swap
+  // here would show every colour picker in the UI with red and blue exchanged.
+  const { result: colourResult } = await cdp.send('Runtime.evaluate', {
+    expression: `(async () => {
+      // The colour lives on the source inside the scene, not the scene itself.
+      const inputs = Object.keys(window.webmix.store.state.inputs);
+      const source = inputs.find((name) => /^MV A/.test(name));
+      if (!source) return JSON.stringify({ skipped: true, inputs });
+      const props = await (await fetch('api/properties/source?name=' + encodeURIComponent(source))).json();
+      const value = props.values?.color;
+      // The dialog passes withAlpha for colour_alpha properties (this one is).
+      const definition = (props.properties ?? []).find((p) => p.name === 'color');
+      const withAlpha = definition?.alpha === true;
+      const hex = window.webmix.properties.colorIntToHex(value, withAlpha);
+      const back = window.webmix.properties.hexToColorInt(hex, withAlpha);
+      return JSON.stringify({ source, value, withAlpha, hex, back, roundTrips: back === value });
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  let colour = {};
+  try {
+    colour = JSON.parse(colourResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  colour: ${JSON.stringify(colour)}`);
+  // A red source must read back as red: with the byte order wrong this would
+  // be '#0000ff...' and every colour picker would show red and blue swapped.
+  check(
+    'OBS colour renders as its real colour in the UI',
+    typeof colour.hex === 'string' && colour.hex.startsWith('#ff0000')
+  );
+  check('colour conversions round-trip against OBS', colour.roundTrips === true);
+
   // Settings > Hotkeys must show the bindings OBS actually has (via the
   // bridge), not just hotkey names.
   await cdp.send('Runtime.evaluate', {

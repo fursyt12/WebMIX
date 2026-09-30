@@ -88,19 +88,31 @@ test('ignores preamble noise and keeps the last partial part buffered', () => {
   assert.deepEqual(asStrings(more), ['incomplete']);
 });
 
-test('colour values round-trip between OBS ints and CSS hex', () => {
+test('colour values round-trip in OBS 0xAABBGGRR order', () => {
+  // OBS puts red in the LOW byte, so the integer 0x0000FF is pure red and
+  // 0xFF0000 is pure blue (the reverse of the CSS convention).
+  assert.equal(colorIntToHex(0x0000ff), '#ff0000', 'low byte is red');
+  assert.equal(colorIntToHex(0xff0000), '#0000ff', 'high colour byte is blue');
+  assert.equal(colorIntToHex(0x00ff00), '#00ff00');
   assert.equal(colorIntToHex(0xffffff), '#ffffff');
   assert.equal(colorIntToHex(0x000000), '#000000');
-  assert.equal(colorIntToHex(0xff0000), '#ff0000');
 
-  assert.equal(hexToColorInt('#ff0000'), 0xff0000);
+  assert.equal(hexToColorInt('#ff0000'), 0x0000ff, 'red lands in the low byte');
+  assert.equal(hexToColorInt('#0000ff'), 0xff0000, 'blue lands in the high colour byte');
   assert.equal(hexToColorInt('00ff00'), 0x00ff00);
 
   // With alpha the top byte carries the alpha channel.
   const withAlpha = hexToColorInt('#11223344', true);
   assert.equal((withAlpha >>> 24) & 0xff, 0x44);
-  assert.equal(withAlpha & 0xffffff, 0x112233);
+  assert.equal(withAlpha & 0xff, 0x11, 'red in the low byte');
+  assert.equal((withAlpha >>> 8) & 0xff, 0x22);
+  assert.equal((withAlpha >>> 16) & 0xff, 0x33);
   assert.equal(colorIntToHex(withAlpha, true), '#11223344');
+
+  // Every channel round-trips.
+  for (const hex of ['#000000', '#ff0000', '#00ff00', '#0000ff', '#123456', '#abcdef']) {
+    assert.equal(colorIntToHex(hexToColorInt(hex)), hex, hex);
+  }
 });
 
 test('list values compare consistently regardless of type', () => {

@@ -88,6 +88,7 @@ test('all UI modules import cleanly without a DOM', async () => {
     '../src/ui/custom-docks.js',
     '../src/ui/dialogs.js',
     '../src/ui/files.js',
+    '../src/ui/multiview.js',
   ];
   for (const path of modules) {
     const mod = await import(path);
@@ -170,4 +171,19 @@ test('icons module provides every glyph the panels use', async () => {
   ];
   for (const name of used) assert.ok(ICON_NAMES.includes(name), `icon "${name}" exists`);
   assert.equal(typeof icon, 'function');
+});
+
+test('multiview grid geometry matches the server composition', async () => {
+  const { gridLayout } = await import('../src/ui/multiview.js');
+  // ceil(sqrt(n)) columns, matching CaptureMultiview().
+  assert.deepEqual(gridLayout(1), { columns: 1, rows: 1 });
+  assert.deepEqual(gridLayout(2), { columns: 2, rows: 1 });
+  assert.deepEqual(gridLayout(3), { columns: 2, rows: 2 });
+  assert.deepEqual(gridLayout(4), { columns: 2, rows: 2 });
+  assert.deepEqual(gridLayout(5), { columns: 3, rows: 2 });
+  assert.deepEqual(gridLayout(6), { columns: 3, rows: 2 });
+  assert.deepEqual(gridLayout(9), { columns: 3, rows: 3 });
+  assert.deepEqual(gridLayout(10), { columns: 4, rows: 3 });
+  // Degenerate input still yields a usable grid.
+  assert.deepEqual(gridLayout(0), { columns: 1, rows: 1 });
 });

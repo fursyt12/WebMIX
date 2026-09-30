@@ -17,24 +17,34 @@ const BRIDGE = 'api/properties';
 
 /* ------------------------------------------------------------ value helpers */
 
-/** OBS stores colours as 0xRRGGBB (or 0xAARRGGBB with alpha). */
+/*
+ * OBS stores colours as 0xAABBGGRR - red in the *low* byte (see
+ * vec4_from_rgba() in libobs/graphics/vec4.h, which memcpy's the integer into
+ * an R,G,B,A byte array). Getting this order wrong swaps red and blue in every
+ * colour picker, so it is spelled out here and covered by tests.
+ */
 export function colorIntToHex(value, withAlpha = false) {
   const int = Number(value) >>> 0;
-  const hex = (int & 0xffffff).toString(16).padStart(6, '0');
-  if (!withAlpha) return `#${hex}`;
+  const r = int & 0xff;
+  const g = (int >>> 8) & 0xff;
+  const b = (int >>> 16) & 0xff;
+  const hex = (r << 16) | (g << 8) | b;
+  const rgb = hex.toString(16).padStart(6, '0');
+  if (!withAlpha) return `#${rgb}`;
   const alpha = ((int >>> 24) & 0xff).toString(16).padStart(2, '0');
-  return `#${hex}${alpha}`;
+  return `#${rgb}${alpha}`;
 }
 
 export function hexToColorInt(hex, withAlpha = false) {
   const clean = String(hex ?? '').replace('#', '');
-  if (withAlpha && clean.length === 8) {
-    const rgb = parseInt(clean.slice(0, 6), 16) || 0;
-    const alpha = parseInt(clean.slice(6, 8), 16) || 0;
-    return (((alpha << 24) | rgb) >>> 0) || 0;
-  }
   const rgb = parseInt(clean.slice(0, 6), 16) || 0;
-  return rgb;
+  const r = (rgb >>> 16) & 0xff;
+  const g = (rgb >>> 8) & 0xff;
+  const b = rgb & 0xff;
+  const alpha = withAlpha && clean.length === 8 ? parseInt(clean.slice(6, 8), 16) || 0 : 0xff;
+  const packed = r | (g << 8) | (b << 16) | (alpha << 24);
+  // Without alpha OBS still keeps the top byte opaque.
+  return withAlpha ? packed >>> 0 : (packed & 0x00ffffff) >>> 0;
 }
 
 /** Stable string form used to compare schema item values with current values. */

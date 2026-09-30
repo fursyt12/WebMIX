@@ -24,7 +24,9 @@ import { CustomDocksPanel } from './ui/custom-docks.js';
 import { loadBindings, matchBinding, isTypingTarget } from './hotkeys.js';
 import { detectHost, requestShutdown } from './host.js';
 import { openFilesDialog } from './ui/files.js';
+import { openMultiview } from './ui/multiview.js';
 import { WebGpuPreview } from './webgpu-preview.js';
+import { colorIntToHex, hexToColorInt } from './properties.js';
 import { openDialog, dialogButtons, alert, confirm, showContextMenu } from './ui/dialog.js';
 import {
   openPropertiesDialog,
@@ -537,6 +539,14 @@ function buildUi() {
 
       case 'openStats':
         await openStatsDialog({ api, store: store2 });
+        break;
+
+      case 'openMultiview':
+        if (!host.previewStream) {
+          statusMessage('Multiview needs OBS to serve this page (--web)', 'warning');
+          break;
+        }
+        await openMultiview({ store: store2, onStatus: statusMessage });
         break;
 
       case 'advancedAudio':
@@ -1269,6 +1279,8 @@ boot();
 window.webmix = {
   /** GPU renderer, exposed for diagnostics and automated checks. */
   WebGpuPreview,
+  /** OBS colour conversions (0xAABBGGRR), exposed for the same reason. */
+  properties: { colorIntToHex, hexToColorInt },
   get store() {
     return store;
   },
