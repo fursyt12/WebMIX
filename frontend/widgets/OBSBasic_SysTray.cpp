@@ -20,9 +20,16 @@
 #include "OBSBasic.hpp"
 
 extern bool opt_minimize_tray;
+/* WebMIX: headless web mode has no native interface at all, so no tray icon. */
+extern bool web_mode;
 
 void OBSBasic::SystemTrayInit()
 {
+	/* The web interface is the only UI in --web mode. */
+	if (web_mode) {
+		return;
+	}
+
 #ifdef __APPLE__
 	QIcon trayIconFile = QIcon(":/res/images/obs_macos.svg");
 	trayIconFile.setIsMask(true);

@@ -17,6 +17,8 @@
 
 #include "OBSApp.hpp"
 
+#include "webmix/WebMixServer.hpp"
+
 #include <components/Multiview.hpp>
 #include <dialogs/LogUploadDialog.hpp>
 #include <plugin-manager/PluginManager.hpp>
@@ -38,6 +40,10 @@
 
 #include <QCheckBox>
 #include <QDesktopServices>
+/* WebMIX: used to enable obs-websocket before it loads, in --web mode. */
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #if defined(_WIN32) || defined(ENABLE_SPARKLE_UPDATER)
 #include <QFile>
 #endif
@@ -74,6 +80,11 @@ extern bool opt_disable_updater;
 extern bool opt_disable_missing_files_check;
 extern string opt_starting_collection;
 extern string opt_starting_profile;
+
+/* WebMIX headless web mode (see obs-main.cpp). */
+extern bool web_mode;
+extern uint16_t opt_web_port;
+extern std::string opt_web_host;
 
 // GPU hint exports for AMD/NVIDIA laptops
 #ifdef _MSC_VER
@@ -180,6 +191,64 @@ QAccessibleInterface *alignmentSelectorFactory(const QString &classname, QObject
 	}
 	return nullptr;
 }
+
+/* WebMIX: the browser frontend talks to OBS over obs-websocket, which ships
+ * with OBS but starts disabled.  In --web mode there is no UI to enable it
+ * from, so flip the setting on disk before the plugin reads its config. */
+void EnsureWebSocketServerEnabled()
+{
+	char path[512];
+	if (GetAppConfigPath(path, sizeof(path), "obs-studio/plugin_config/obs-websocket/config.json") <= 0) {
+		blog(LOG_WARNING, "[WebMIX] Could not resolve the obs-websocket config path");
+		return;
+	}
+
+	QJsonObject config;
+	QFile file(QString::fromUtf8(path));
+	if (file.open(QIODevice::ReadOnly)) {
+		const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+		if (document.isObject()) {
+			config = document.object();
+		}
+		file.close();
+	}
+
+	if (config.value("server_enabled").toBool(false)) {
+		blog(LOG_INFO, "[WebMIX] obs-websocket server is enabled (port %d)",
+		     config.value("server_port").toInt(4455));
+		return;
+	}
+
+	config["server_enabled"] = true;
+	if (!config.contains("server_port")) {
+		config["server_port"] = 4455;
+	}
+	if (!config.contains("server_password")) {
+		config["server_password"] = QString();
+	}
+	if (!config.contains("auth_required")) {
+		config["auth_required"] = true;
+	}
+	if (!config.contains("alerts_enabled")) {
+		config["alerts_enabled"] = false;
+	}
+	if (!config.contains("first_load")) {
+		config["first_load"] = false;
+	}
+
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		blog(LOG_ERROR, "[WebMIX] Could not write %s: %s", path, qUtf8Printable(file.errorString()));
+		return;
+	}
+	file.write(QJsonDocument(config).toJson(QJsonDocument::Indented));
+	file.close();
+
+	blog(LOG_INFO, "[WebMIX] Enabled the obs-websocket server (port %d) so the web interface can connect",
+	     config.value("server_port").toInt(4455));
+}
+
+/*! The web server lives as long as the application object. */
+WebMixServer *webMixServer = nullptr;
 } // namespace
 
 QObject *CreateShortcutFilter()
@@ -332,6 +401,20 @@ bool OBSApp::InitGlobalConfigDefaults()
 	config_set_default_int(appConfig, "General", "InfoIncrement", -1);
 	config_set_default_string(appConfig, "General", "ProcessPriority", "Normal");
 	config_set_default_bool(appConfig, "General", "EnableAutoUpdates", true);
+
+	/* WebMIX: OBS is meant to be usable unattended (autostart in the
+	 * background, e.g. `obs --minimize-to-tray`).  When the machine is
+	 * rebooted or powered off while OBS is running, the next launch counts
+	 * as an unclean shutdown; the modal warning that would normally appear
+	 * blocks start-up, so it is disabled by default.  Set this to true in
+	 * global.ini to get the original prompt back. */
+	config_set_default_bool(appConfig, "General", "WarnOnUncleanShutdown", false);
+
+	/* WebMIX: run without the native window and serve the browser frontend
+	 * instead (equivalent to the --web command line flag). */
+	config_set_default_bool(appConfig, "General", "WebMode", false);
+	config_set_default_int(appConfig, "General", "WebPort", 4456);
+	config_set_default_string(appConfig, "General", "WebHost", "127.0.0.1");
 
 #if _WIN32
 	config_set_default_string(appConfig, "Video", "Renderer", "Direct3D 11");
@@ -1195,14 +1278,33 @@ void OBSApp::checkForUncleanShutdown()
 	bool hasUncleanShutdown = crashHandler_->hasUncleanShutdown();
 	bool hasNewCrashLog = crashHandler_->hasNewCrashLog();
 
-	if (hasUncleanShutdown) {
-		UncleanLaunchAction launchAction = handleUncleanShutdown(hasNewCrashLog);
+	if (!hasUncleanShutdown) {
+		return;
+	}
 
-		safe_mode = launchAction.useSafeMode;
+	/* WebMIX: an unclean shutdown is usually just the OS being rebooted or
+	 * powered off while OBS was running, not a crash.  Because WebMIX is
+	 * expected to be started automatically in the background, a modal dialog
+	 * here would stall start-up forever with nobody to click it, so the
+	 * warning is logged and the normal launch continues.  Set
+	 * `WarnOnUncleanShutdown=true` under `[General]` in global.ini to restore
+	 * the interactive prompt. */
+	if (!config_get_bool(appConfig, "General", "WarnOnUncleanShutdown")) {
+		blog(LOG_WARNING, "Crash or unclean shutdown detected - continuing with a "
+				  "normal launch (the unclean shutdown warning dialog is disabled)");
 
-		if (launchAction.sendCrashReport) {
-			crashHandler_->uploadLastCrashLog();
+		if (hasNewCrashLog) {
+			blog(LOG_WARNING, "A new crash log is available in the OBS crash log directory");
 		}
+		return;
+	}
+
+	UncleanLaunchAction launchAction = handleUncleanShutdown(hasNewCrashLog);
+
+	safe_mode = launchAction.useSafeMode;
+
+	if (launchAction.sendCrashReport) {
+		crashHandler_->uploadLastCrashLog();
 	}
 }
 
@@ -1377,6 +1479,18 @@ bool OBSApp::OBSInit()
 
 	connect(crashHandler_.get(), &OBS::CrashHandler::crashLogUploadFinished, this,
 		[this](const QString &fileUrl) { emit this->logUploadFinished(OBS::LogFileType::CrashLog, fileUrl); });
+
+	/* WebMIX: start the built-in web server.  In --web mode this is the only
+	 * way to reach the application, so a failure is fatal: continuing would
+	 * leave an invisible, uncontrollable process behind. */
+	if (web_mode && !webMixServer) {
+		webMixServer = new WebMixServer(this);
+		if (!webMixServer->Start(QString::fromStdString(opt_web_host), opt_web_port)) {
+			blog(LOG_ERROR, "[WebMIX] The web interface could not be started; aborting because "
+					"no other interface exists in web mode.");
+			return false;
+		}
+	}
 
 	return true;
 }
@@ -2097,6 +2211,12 @@ void OBSApp::loadAppModules()
 	PluginMode mode = (disable_3p_plugins || safe_mode) ? PluginMode::CoreOnly : PluginMode::Full;
 	pluginManager_->setPluginMode(mode);
 
+	/* WebMIX: --web has no UI for enabling obs-websocket, and the web
+	 * frontend cannot work without it, so make sure it is on first. */
+	if (web_mode) {
+		EnsureWebSocketServerEnabled();
+	}
+
 	pluginManager_->loadAllPlugins(portable_mode);
 }
 
@@ -2105,12 +2225,21 @@ void OBSApp::handlePluginLoadState()
 	using PluginState = OBS::PluginManager::State;
 	PluginState loadState = pluginManager_->loadState();
 
-	if (loadState != PluginState::Success) {
-		PluginFailureAction action = handlePluginFailure();
+	if (loadState == PluginState::Success) {
+		return;
+	}
 
-		if (action == PluginFailureAction::OpenPluginManager) {
-			pluginManagerOpenDialog();
-		}
+	/* No native UI in web mode, so a modal here would hang the process. */
+	if (web_mode) {
+		blog(LOG_WARNING, "[WebMIX] Some plugins failed to load; continuing without the plugin "
+				  "manager dialog (web mode)");
+		return;
+	}
+
+	PluginFailureAction action = handlePluginFailure();
+
+	if (action == PluginFailureAction::OpenPluginManager) {
+		pluginManagerOpenDialog();
 	}
 }
 

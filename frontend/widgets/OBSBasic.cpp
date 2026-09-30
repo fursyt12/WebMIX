@@ -81,6 +81,8 @@ extern bool disable_3p_plugins;
 extern bool opt_studio_mode;
 extern bool opt_always_on_top;
 extern bool opt_minimize_tray;
+/* WebMIX: headless web mode never shows the native window. */
+extern bool web_mode;
 extern std::string opt_starting_profile;
 extern std::string opt_starting_collection;
 
@@ -1044,8 +1046,10 @@ void OBSBasic::OBSInit()
 	 * or neither the setting nor flag for starting minimized is set. */
 	bool sysTrayEnabled = config_get_bool(App()->GetUserConfig(), "BasicWindow", "SysTrayEnabled");
 	bool sysTrayWhenStarted = config_get_bool(App()->GetUserConfig(), "BasicWindow", "SysTrayWhenStarted");
-	bool hideWindowOnStart = QSystemTrayIcon::isSystemTrayAvailable() && sysTrayEnabled &&
-				 (opt_minimize_tray || sysTrayWhenStarted);
+	/* WebMIX: in headless web mode the window is never shown - the web
+	 * interface is the only UI (see --web in obs-main.cpp). */
+	bool hideWindowOnStart = web_mode || (QSystemTrayIcon::isSystemTrayAvailable() && sysTrayEnabled &&
+					      (opt_minimize_tray || sysTrayWhenStarted));
 
 #ifdef _WIN32
 	SetWin32DropStyle(this);
@@ -1164,7 +1168,7 @@ void OBSBasic::OBSInit()
 		config_save_safe(App()->GetUserConfig(), "tmp", nullptr);
 	}
 
-	if (!first_run && !has_last_version && !Active()) {
+	if (!first_run && !has_last_version && !Active() && !web_mode) {
 		QMetaObject::invokeMethod(this, &OBSBasic::on_autoConfigure_triggered, Qt::QueuedConnection);
 	}
 

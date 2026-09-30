@@ -56,6 +56,7 @@ include(cmake/feature-browserpanels.cmake)
 include(cmake/ui-qt.cmake)
 include(cmake/ui-settings.cmake)
 include(cmake/ui-utility.cmake)
+include(cmake/feature-webmix.cmake)
 include(cmake/ui-widgets.cmake)
 include(cmake/ui-wizards.cmake)
 

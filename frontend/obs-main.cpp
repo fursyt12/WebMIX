@@ -64,6 +64,13 @@ static bool unclean_shutdown = false;
 bool multi = false;
 static bool log_verbose = false;
 static bool unfiltered_log = false;
+
+/* WebMIX: headless web mode.  OBS starts without ever showing its Qt window
+ * (and without a tray icon) and serves the browser frontend instead; the web
+ * UI is the only interface. */
+bool web_mode = false;
+uint16_t opt_web_port = 4456;
+std::string opt_web_host = "127.0.0.1";
 bool opt_start_streaming = false;
 bool opt_start_recording = false;
 bool opt_studio_mode = false;
@@ -562,14 +569,22 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 		}
 
 		if (!multi) {
-			QMessageBox mb(QMessageBox::Question, QTStr("AlreadyRunning.Title"),
-				       QTStr("AlreadyRunning.Text"));
-			mb.addButton(QTStr("AlreadyRunning.LaunchAnyway"), QMessageBox::YesRole);
-			QPushButton *cancelButton = mb.addButton(QTStr("Cancel"), QMessageBox::NoRole);
-			mb.setDefaultButton(cancelButton);
+			if (web_mode) {
+				/* Web mode is meant to be started unattended (autostart,
+				 * service, tray-less).  A modal "already running" prompt
+				 * would hang forever, so the second instance just exits. */
+				blog(LOG_WARNING, "[WebMIX] OBS is already running; exiting this instance.");
+				cancel_launch = true;
+			} else {
+				QMessageBox mb(QMessageBox::Question, QTStr("AlreadyRunning.Title"),
+					       QTStr("AlreadyRunning.Text"));
+				mb.addButton(QTStr("AlreadyRunning.LaunchAnyway"), QMessageBox::YesRole);
+				QPushButton *cancelButton = mb.addButton(QTStr("Cancel"), QMessageBox::NoRole);
+				mb.setDefaultButton(cancelButton);
 
-			mb.exec();
-			cancel_launch = mb.clickedButton() == cancelButton;
+				mb.exec();
+				cancel_launch = mb.clickedButton() == cancelButton;
+			}
 		}
 
 		if (cancel_launch) {
@@ -969,6 +984,27 @@ int main(int argc, char *argv[])
 		} else if (arg_is(argv[i], "--safe-mode", nullptr)) {
 			safe_mode = true;
 
+		} else if (arg_is(argv[i], "--web", nullptr)) {
+			web_mode = true;
+			/* No native UI means no dialogs: suppress the missing-files
+			 * prompt, which would otherwise block an unattended start. */
+			opt_disable_missing_files_check = true;
+
+		} else if (arg_is(argv[i], "--web-port", nullptr)) {
+			if (++i < argc) {
+				const int port = atoi(argv[i]);
+				if (port > 0 && port < 65536) {
+					opt_web_port = (uint16_t)port;
+				} else {
+					blog(LOG_WARNING, "Ignoring invalid --web-port value '%s'", argv[i]);
+				}
+			}
+
+		} else if (arg_is(argv[i], "--web-host", nullptr)) {
+			if (++i < argc) {
+				opt_web_host = argv[i];
+			}
+
 		} else if (arg_is(argv[i], "--only-bundled-plugins", nullptr)) {
 			disable_3p_plugins = true;
 
@@ -1042,6 +1078,9 @@ int main(int argc, char *argv[])
 				"--multi, -m: Don't warn when launching multiple instances.\n\n"
 				"--safe-mode: Run in Safe Mode (disables third-party plugins, scripting, and WebSockets).\n"
 				"--only-bundled-plugins: Only load included (first-party) plugins\n"
+				"--web: Run without the native window and serve the web interface (implies --disable-missing-files-check).\n"
+				"--web-port <port>: Port for the web interface (default 4456).\n"
+				"--web-host <address>: Address for the web interface (default 127.0.0.1; use 0.0.0.0 for the LAN).\n"
 				"--verbose: Make log more verbose.\n"
 				"--always-on-top: Start in 'always on top' mode.\n\n"
 				"--unfiltered_log: Make log unfiltered.\n\n"
@@ -1059,6 +1098,30 @@ int main(int argc, char *argv[])
 			std::cout << "OBS Studio - " << App()->GetVersionString(false) << "\n";
 			exit(0);
 		}
+	}
+
+	/* WebMIX: web mode can also be made permanent through global.ini, so OBS
+	 * can be used as a background service with only the browser interface:
+	 *
+	 *   [General]
+	 *   WebMode=true
+	 */
+	if (!web_mode && config_get_bool(App()->GetAppConfig(), "General", "WebMode")) {
+		web_mode = true;
+		opt_disable_missing_files_check = true;
+
+		const int port = config_get_int(App()->GetAppConfig(), "General", "WebPort");
+		if (port > 0 && port < 65536) {
+			opt_web_port = (uint16_t)port;
+		}
+
+		const char *host = config_get_string(App()->GetAppConfig(), "General", "WebHost");
+		if (host && *host) {
+			opt_web_host = host;
+		}
+
+		blog(LOG_INFO, "[WebMIX] Web mode enabled from global.ini (General > WebMode), %s:%u",
+		     opt_web_host.c_str(), opt_web_port);
 	}
 
 #if ALLOW_PORTABLE_MODE
