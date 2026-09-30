@@ -64,6 +64,9 @@ WebHost=127.0.0.1
 | `POST /api/transitions/add\|rename\|remove` | Creates, renames and removes transition instances; built-in Cut/Fade stay protected. |
 | `GET /api/hotkeys` | Every hotkey with the bindings OBS itself reports (formatted by OBS). |
 | `POST /api/hotkeys/bind\|clear` | Rebinds a hotkey in OBS and persists it to the active profile. |
+| `GET /api/files/list` | Lists a directory OBS uses (`kind=recordings\|logs\|crashes\|config\|profile`, optional `path=` for a subdirectory). |
+| `GET /api/files/download` | Streams a file from one of those directories as an attachment. |
+| `GET /api/files/text` | Reads the tail of a text file, for the inline log viewer. |
 | everything else | Static files from this directory; unknown paths fall back to `index.html`. |
 
 Requests containing `..` (including percent-encoded) are rejected with 403, and
@@ -222,6 +225,27 @@ Everything below operates the **live** OBS instance:
   `localStorage` and are shown next to each hotkey.
 * **Profiles & scene collections** — switch, create, remove; profile/collection
   lists live in their menus, like OBS.
+* **Files** — Show Recordings, Show Log Files, View Current Log, Show Settings
+  Folder and Show Profile Folder open a browser with navigation and downloads
+  instead of a file manager on the OBS machine, which is what makes recordings
+  retrievable from a headless box.
+
+## Security
+
+The embedded server is deliberately **unauthenticated**: it exists to serve a
+local control surface, and it has to hand the browser the obs-websocket password
+(`/obs-config.json`) so the UI can connect without asking. It binds to
+`127.0.0.1` by default.
+
+Binding it beyond loopback (`--web --web-host 0.0.0.0`, or `WebHost` in
+`global.ini`) therefore exposes both control of OBS and read access to its
+config, log and recording directories to anyone who can reach the port. OBS logs
+a warning when that happens. On an untrusted network, put an authenticating
+reverse proxy in front of it.
+
+File access is confined to the directories OBS itself uses; every request is
+validated (no `..`, no absolute paths, canonical path must stay inside the root,
+so symlinks cannot escape) and all such attempts are refused with 404.
 
 ## Preview backends
 
@@ -264,7 +288,7 @@ silently.
 | Scene collections / profiles | List/switch/create/remove work, but duplicate/rename/import/export do not. |
 | Undo/redo, source group/ungroup, copy/paste duplicate | Not exposed. |
 | "Hide in Mixer", mixer pin/lock | Not exposed. |
-| Recordings folder, Remux Recordings, log upload, Plugin Manager, Auto-Configuration, missing-files check | Desktop-UI features (`Frontend API`), not in the protocol. |
+| Recordings / logs / config folders | Solved via `/api/files/*` (list, download, view). Remux Recordings, uploading a log to obsproject.com, the Plugin Manager and the Auto-Configuration Wizard are still desktop-only. |
 | Always On Top, OS folders, tray | Apply to the desktop window, not the browser. |
 | Exit OBS | obs-websocket has no shutdown request, but the embedded server adds `POST /api/shutdown`, so File > Exit works when OBS serves the UI (`--web`). With an external server there is still no way. |
 

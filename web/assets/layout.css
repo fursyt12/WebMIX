@@ -1262,3 +1262,52 @@ body.obs-app {
   vertical-align: top;
   padding: var(--obs-padding-base) var(--obs-padding-large);
 }
+
+/* --------------------------------------------------------- file browser */
+
+.obs-files-bar {
+  padding-bottom: var(--obs-padding-large);
+}
+
+.obs-files-path {
+  font-size: var(--obs-font-size-small, 10px);
+  word-break: break-all;
+}
+
+.obs-files-body {
+  min-height: 0;
+}
+
+.obs-files-table {
+  width: 100%;
+}
+
+.obs-files-name {
+  word-break: break-all;
+}
+
+.obs-files-size,
+.obs-files-date {
+  white-space: nowrap;
+  color: var(--obs-text-muted);
+}
+
+.obs-files-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.obs-files-dir {
+  text-align: left;
+}
+
+.obs-file-viewer {
+  margin: 0;
+  padding: var(--obs-padding-large);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
+  font-size: var(--obs-font-size-small, 10px);
+  max-height: 46vh;
+  overflow: auto;
+}

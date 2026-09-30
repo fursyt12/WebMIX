@@ -87,6 +87,7 @@ test('all UI modules import cleanly without a DOM', async () => {
     '../src/ui/stats.js',
     '../src/ui/custom-docks.js',
     '../src/ui/dialogs.js',
+    '../src/ui/files.js',
   ];
   for (const path of modules) {
     const mod = await import(path);

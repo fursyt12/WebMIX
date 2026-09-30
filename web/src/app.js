@@ -23,6 +23,7 @@ import { StatsPanel } from './ui/stats.js';
 import { CustomDocksPanel } from './ui/custom-docks.js';
 import { loadBindings, matchBinding, isTypingTarget } from './hotkeys.js';
 import { detectHost, requestShutdown } from './host.js';
+import { openFilesDialog } from './ui/files.js';
 import { WebGpuPreview } from './webgpu-preview.js';
 import { openDialog, dialogButtons, alert, confirm, showContextMenu } from './ui/dialog.js';
 import {
@@ -689,15 +690,29 @@ function buildUi() {
       }
 
       case 'showRecordings':
-        statusMessage('Use "Show Recordings" in the OBS desktop UI to open the recordings folder', 'warning');
+        await openFilesDialog({ kind: 'recordings', onStatus: statusMessage });
+        break;
+      case 'showSettingsFolder':
+        await openFilesDialog({ kind: 'config', onStatus: statusMessage });
+        break;
+      case 'showProfileFolder':
+        await openFilesDialog({ kind: 'profile', onStatus: statusMessage });
+        break;
+      case 'showLogs':
+        await openFilesDialog({ kind: 'logs', canPreview: true, onStatus: statusMessage });
+        break;
+      case 'viewCurrentLog':
+        await openFilesDialog({
+          kind: 'logs',
+          canPreview: true,
+          openNewest: true,
+          title: 'Current Log',
+          onStatus: statusMessage,
+        });
         break;
       case 'remuxRecordings':
         statusMessage('The Remux Recordings dialog is not available in the web UI yet', 'warning');
         break;
-      case 'showSettingsFolder':
-      case 'showProfileFolder':
-      case 'showLogs':
-      case 'viewCurrentLog':
       case 'openPluginManager':
       case 'openScripts':
       case 'autoConfigure':

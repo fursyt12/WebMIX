@@ -376,6 +376,108 @@ try {
   writeFileSync(SCREENSHOT, Buffer.from(shot.data, 'base64'));
   console.log(`screenshot: ${SCREENSHOT} (${existsSync(SCREENSHOT) ? 'written' : 'MISSING'})`);
 
+  // File access: a headless box has no file manager, so recordings and logs
+  // must be listable and downloadable from the browser - and traversal refused.
+  const { result: filesResult } = await cdp.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const out = {};
+      const list = await (await fetch('api/files/list?kind=logs')).json();
+      out.logPath = list.path ?? null;
+      out.logCount = (list.entries ?? []).length;
+      // Use the OLDEST log: the newest one is being written to right now, so
+      // its size changes between the listing and the download.
+      const files = (list.entries ?? []).filter((entry) => !entry.isDirectory);
+      const stable = files[files.length - 1];
+      out.newest = stable?.name ?? null;
+      if (stable) {
+        const response = await fetch('api/files/download?kind=logs&path=' + encodeURIComponent(stable.name));
+        const bytes = await response.arrayBuffer();
+        out.downloadStatus = response.status;
+        out.downloadBytes = bytes.byteLength;
+        out.declaredBytes = stable.size;
+        out.disposition = response.headers.get('content-disposition');
+        const text = await (await fetch('api/files/text?kind=logs&path=' + encodeURIComponent(stable.name) + '&limit=2048')).text();
+        out.textLooksLikeLog = /\\d\\d:\\d\\d:\\d\\d/.test(text);
+      }
+      out.traversal = [];
+      for (const candidate of ['../logs', '..%2f..%2fetc%2fpasswd', '/etc/passwd', 'sub/dir']) {
+        const response = await fetch('api/files/download?kind=logs&path=' + candidate);
+        out.traversal.push(response.status);
+      }
+      return JSON.stringify(out);
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  let files = {};
+  try {
+    files = JSON.parse(filesResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  files: ${JSON.stringify({ ...files, textLooksLikeLog: files.textLooksLikeLog })}`);
+
+  check('log directory is listable', (files.logCount ?? 0) >= 1 && /logs$/.test(files.logPath ?? ''));
+  check('log file downloads intact', files.downloadStatus === 200 && files.downloadBytes === files.declaredBytes);
+  check(
+    'download sets a readable attachment name',
+    typeof files.disposition === 'string' &&
+      files.disposition.includes('attachment') &&
+      files.disposition.includes("filename*=UTF-8''")
+  );
+  check('log text can be read in the browser', files.textLooksLikeLog === true);
+  check('file traversal is refused', (files.traversal ?? []).every((status) => status === 404));
+
+  // The menu items that used to say "desktop UI only" now open the browser.
+  await cdp.send('Runtime.evaluate', {
+    expression: `window.webmix.ui.dispatch('showRecordings')`,
+    awaitPromise: true,
+  });
+  await delay(900);
+  const { result: recordingsResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify({
+      dialog: [...document.querySelectorAll('.obs-dialog-title')].some((t) => t.textContent.includes('Recordings')),
+      rows: document.querySelectorAll('.obs-files-table tbody tr').length,
+      path: document.querySelector('.obs-files-path')?.textContent ?? '',
+    })`,
+    returnByValue: true,
+  });
+  let recordings = {};
+  try {
+    recordings = JSON.parse(recordingsResult.value ?? '{}');
+  } catch { /* ignore */ }
+  check('Show Recordings opens a browser dialog', recordings.dialog === true && recordings.rows >= 1);
+  console.log(`  recordings dialog: ${JSON.stringify(recordings)}`);
+
+  const filesShot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+  writeFileSync(SCREENSHOT.replace(/\.png$/, '-files.png'), Buffer.from(filesShot.data, 'base64'));
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('.obs-modal-backdrop .obs-dialog-close')?.click()`,
+  });
+  await delay(200);
+
+  // Help > View Current Log opens the newest log inline.
+  await cdp.send('Runtime.evaluate', {
+    expression: `window.webmix.ui.dispatch('viewCurrentLog')`,
+    awaitPromise: true,
+  });
+  await delay(1200);
+  const { result: logViewResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify({
+      viewer: !!document.querySelector('.obs-file-viewer'),
+      chars: document.querySelector('.obs-file-viewer')?.textContent.length ?? 0,
+    })`,
+    returnByValue: true,
+  });
+  let logView = {};
+  try {
+    logView = JSON.parse(logViewResult.value ?? '{}');
+  } catch { /* ignore */ }
+  check('View Current Log renders the log inline', logView.viewer === true && logView.chars > 100);
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelectorAll('.obs-modal-backdrop .obs-dialog-close').forEach((b) => b.click())`,
+  });
+  await delay(200);
+
   // Settings > Hotkeys must show the bindings OBS actually has (via the
   // bridge), not just hotkey names.
   await cdp.send('Runtime.evaluate', {
