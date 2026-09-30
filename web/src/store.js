@@ -96,6 +96,18 @@ const EVENT_TOPICS = {
   CustomEvent: [],
 };
 
+/**
+ * Scenes in display order: the same top-to-bottom order the desktop Scenes
+ * panel shows.
+ *
+ * obs-websocket returns the scene array in *reverse* UI order (see
+ * Utils::Obs::ArrayHelper::GetSceneList, which reverses the frontend list), so
+ * everything arriving from the protocol is flipped before it reaches the UI.
+ */
+export function toDisplayOrder(scenes) {
+  return (scenes ?? []).map((s) => ({ ...s })).reverse();
+}
+
 /** Build the initial (disconnected) state. */
 export function createState() {
   return {
@@ -209,7 +221,7 @@ export function reduceEvent(state, eventType, data = {}) {
     }
     case 'SceneListChanged': {
       if (Array.isArray(data.scenes)) {
-        state.scenes = data.scenes.map((s) => ({ ...s }));
+        state.scenes = toDisplayOrder(data.scenes);
       }
       break;
     }

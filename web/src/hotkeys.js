@@ -81,6 +81,31 @@ export function saveBindings(bindings) {
 }
 
 /**
+ * Capture the next key as an OBS key name plus modifier tokens, for rebinding
+ * inside OBS. Resolves null on Escape; unsupported keys keep waiting.
+ * @param {(binding: {keyName: string, modifiers: string[]}|null) => void} resolve
+ */
+export function captureObsKey(resolve) {
+  const onKey = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      cleanup();
+      resolve(null);
+      return;
+    }
+    const keyName = obsKeyFromEvent(event);
+    if (!keyName) return; // modifier-only or unmapped key: keep waiting
+    const modifiers = obsModifiersFromEvent(event);
+    cleanup();
+    resolve({ keyName, modifiers });
+  };
+  const cleanup = () => window.removeEventListener('keydown', onKey, true);
+  window.addEventListener('keydown', onKey, true);
+  return cleanup;
+}
+
+/**
  * Capture the next key combination the user presses.
  * @param {(combo: string|null) => void} resolve  null when cancelled (Escape)
  */
@@ -103,4 +128,84 @@ export function captureCombo(resolve) {
   };
   window.addEventListener('keydown', onKey, true);
   return cleanup;
+}
+
+/* ------------------------------------------------- OBS key names (for OBS) */
+
+/**
+ * Map a browser `event.code` to the OBS key name used by `obs_key_from_name`.
+ *
+ * OBS identifies keys by name (OBS_KEY_A ... OBS_KEY_F24), which is portable -
+ * unlike the platform virtual key codes the Qt UI uses. Returns null for keys
+ * this table does not cover.
+ */
+const OBS_KEY_BY_CODE = (() => {
+  const map = {};
+  for (let i = 0; i < 26; i++) {
+    const letter = String.fromCharCode(65 + i);
+    map[`Key${letter}`] = `OBS_KEY_${letter}`;
+  }
+  for (let i = 0; i <= 9; i++) map[`Digit${i}`] = `OBS_KEY_${i}`;
+  for (let i = 1; i <= 24; i++) map[`F${i}`] = `OBS_KEY_F${i}`;
+  for (let i = 0; i <= 9; i++) map[`Numpad${i}`] = `OBS_KEY_NUM${i}`;
+  Object.assign(map, {
+    Space: 'OBS_KEY_SPACE',
+    Escape: 'OBS_KEY_ESCAPE',
+    Enter: 'OBS_KEY_RETURN',
+    NumpadEnter: 'OBS_KEY_RETURN',
+    Tab: 'OBS_KEY_TAB',
+    Backspace: 'OBS_KEY_BACKSPACE',
+    Delete: 'OBS_KEY_DELETE',
+    Insert: 'OBS_KEY_INSERT',
+    Home: 'OBS_KEY_HOME',
+    End: 'OBS_KEY_END',
+    PageUp: 'OBS_KEY_PAGEUP',
+    PageDown: 'OBS_KEY_PAGEDOWN',
+    ArrowUp: 'OBS_KEY_UP',
+    ArrowDown: 'OBS_KEY_DOWN',
+    ArrowLeft: 'OBS_KEY_LEFT',
+    ArrowRight: 'OBS_KEY_RIGHT',
+    Minus: 'OBS_KEY_MINUS',
+    Equal: 'OBS_KEY_EQUAL',
+    BracketLeft: 'OBS_KEY_BRACKETLEFT',
+    BracketRight: 'OBS_KEY_BRACKETRIGHT',
+    Backslash: 'OBS_KEY_BACKSLASH',
+    Semicolon: 'OBS_KEY_SEMICOLON',
+    Quote: 'OBS_KEY_QUOTE',
+    Backquote: 'OBS_KEY_QUOTELEFT',
+    Comma: 'OBS_KEY_COMMA',
+    Period: 'OBS_KEY_PERIOD',
+    Slash: 'OBS_KEY_SLASH',
+    NumpadAdd: 'OBS_KEY_NUMPLUS',
+    NumpadSubtract: 'OBS_KEY_NUMMINUS',
+    NumpadMultiply: 'OBS_KEY_NUMMULTIPLY',
+    NumpadDivide: 'OBS_KEY_NUMSLASH',
+    NumpadDecimal: 'OBS_KEY_NUMPERIOD',
+    CapsLock: 'OBS_KEY_CAPSLOCK',
+  });
+  return map;
+})();
+
+/** The OBS key name for a keyboard event, or null when unsupported. */
+export function obsKeyFromEvent(event) {
+  return OBS_KEY_BY_CODE[event?.code] ?? null;
+}
+
+/** OBS modifier tokens for a keyboard event. */
+export function obsModifiersFromEvent(event) {
+  const modifiers = [];
+  if (event?.ctrlKey) modifiers.push('control');
+  if (event?.altKey) modifiers.push('alt');
+  if (event?.shiftKey) modifiers.push('shift');
+  if (event?.metaKey) modifiers.push('command');
+  return modifiers;
+}
+
+/** Human-readable form of a captured combination, e.g. "Ctrl+Shift+R". */
+export function describeCombo({ keyName, modifiers }) {
+  const labels = modifiers.map((m) =>
+    m === 'control' ? 'Ctrl' : m === 'alt' ? 'Alt' : m === 'shift' ? 'Shift' : 'Cmd'
+  );
+  const key = String(keyName ?? '').replace(/^OBS_KEY_/, '');
+  return [...labels, key].filter(Boolean).join('+');
 }

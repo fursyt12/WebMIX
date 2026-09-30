@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Store, createState, reduceEvent, topicsForEvent, Topic, selectors } from '../src/store.js';
+import { Store, createState, reduceEvent, topicsForEvent, Topic, selectors, toDisplayOrder } from '../src/store.js';
 
 test('createState starts disconnected and empty', () => {
   const state = createState();
@@ -31,15 +31,29 @@ test('scene lifecycle events keep the scene list in sync', () => {
   assert.equal(state.sceneItems.Outro, undefined);
 });
 
-test('SceneListChanged replaces the whole list (authoritative refresh)', () => {
+test('SceneListChanged arrives bottom-first and is flipped to display order', () => {
   const state = createState();
+  // obs-websocket returns the scenes in reverse UI order: index 0 is the
+  // BOTTOM of the desktop list.
   reduceEvent(state, 'SceneListChanged', {
     scenes: [
-      { sceneName: 'Top', sceneIndex: 1 },
       { sceneName: 'Bottom', sceneIndex: 0 },
+      { sceneName: 'Middle', sceneIndex: 1 },
+      { sceneName: 'Top', sceneIndex: 2 },
     ],
   });
-  assert.deepEqual(state.scenes.map((s) => s.sceneName), ['Top', 'Bottom']);
+  assert.deepEqual(state.scenes.map((s) => s.sceneName), ['Top', 'Middle', 'Bottom']);
+});
+
+test('toDisplayOrder reverses the protocol order and copies entries', () => {
+  const input = [
+    { sceneName: 'Bottom', sceneIndex: 0 },
+    { sceneName: 'Top', sceneIndex: 1 },
+  ];
+  const out = toDisplayOrder(input);
+  assert.deepEqual(out.map((s) => s.sceneName), ['Top', 'Bottom']);
+  assert.notEqual(out[0], input[1], 'entries are copied, not referenced');
+  assert.deepEqual(toDisplayOrder(undefined), []);
 });
 
 test('program/preview scene changes and studio mode', () => {

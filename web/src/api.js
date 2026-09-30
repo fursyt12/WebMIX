@@ -5,7 +5,7 @@
  * and keeps the state store in sync where a request has no matching event
  * (initial loads, settings dialogs, list refreshes).
  */
-import { Topic } from './store.js';
+import { Topic, toDisplayOrder } from './store.js';
 
 export class ObsApi {
   /**
@@ -73,7 +73,7 @@ export class ObsApi {
     ] = base.map((entry) => (entry.requestStatus?.result ? entry.responseData : {}));
 
     this.store.batch(() => {
-      state.scenes = (sceneList.scenes ?? []).map((s) => ({ ...s }));
+      state.scenes = toDisplayOrder(sceneList.scenes);
       state.currentProgramScene = sceneList.currentProgramSceneName ?? null;
       state.currentPreviewScene = sceneList.currentPreviewSceneName ?? null;
       state.studioMode = !!studioMode.studioModeEnabled;
@@ -262,7 +262,7 @@ export class ObsApi {
   async refreshScenes() {
     const data = await this.request('GetSceneList');
     this.store.batch(() => {
-      this.store.state.scenes = (data.scenes ?? []).map((s) => ({ ...s }));
+      this.store.state.scenes = toDisplayOrder(data.scenes);
       this.store.state.currentProgramScene = data.currentProgramSceneName ?? null;
       this.store.state.currentPreviewScene = data.currentPreviewSceneName ?? null;
     });

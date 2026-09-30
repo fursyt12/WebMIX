@@ -25,7 +25,15 @@ import {
   renderPropertyForm,
   pressPropertyButton,
 } from '../properties.js';
-import { loadBindings, saveBindings, captureCombo, normalizeCombo } from '../hotkeys.js';
+import {
+  loadBindings,
+  saveBindings,
+  captureCombo,
+  captureObsKey,
+  normalizeCombo,
+  describeCombo,
+} from '../hotkeys.js';
+import { fetchHotkeys, bindHotkey, clearHotkey } from '../bridge.js';
 
 /* ------------------------------------------------------- generic properties */
 
@@ -1148,21 +1156,36 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
   }
 
   async function renderHotkeys() {
-    let hotkeys = store.state.hotkeys;
-    if (!hotkeys?.length) {
-      const data = await api.request('GetHotkeyList');
-      hotkeys = data.hotkeys ?? [];
-      store.state.hotkeys = hotkeys;
+    // Prefer the bridge: it reports the bindings OBS itself has, which
+    // obs-websocket cannot. Without it, fall back to names only.
+    const obsHotkeys = await fetchHotkeys();
+    let entries = obsHotkeys;
+    if (!entries) {
+      let names = store.state.hotkeys;
+      if (!names?.length) {
+        const data = await api.request('GetHotkeyList');
+        names = data.hotkeys ?? [];
+        store.state.hotkeys = names;
+      }
+      entries = names.map((name) => ({ name, description: '', bindings: null }));
     }
-    let bindings = loadBindings();
+
+    let browserBindings = loadBindings();
+
+    const persistBrowser = () => {
+      saveBindings(browserBindings);
+      window.dispatchEvent(new CustomEvent('webmix:hotkeys-changed'));
+    };
 
     clear(body);
     body.append(
       h('div.obs-hint.obs-muted', {
-        text:
-          'OBS owns the real hotkey bindings and obs-websocket cannot change them. ' +
-          'The shortcuts below are captured by this browser and sent to OBS as TriggerHotkeyByName, ' +
-          'so hotkeys work from the web UI too.',
+        text: obsHotkeys
+          ? 'Bindings can be changed in OBS itself through the WebMIX bridge. Browser shortcuts are captured by ' +
+            'this page and sent as hotkey triggers, which is what works while OBS runs headless - with no window ' +
+            'of its own it never receives key presses.'
+          : 'obs-websocket cannot rebind hotkeys. The browser shortcuts below are captured by this page and sent ' +
+            'to OBS as TriggerHotkeyByName.',
       })
     );
 
@@ -1171,87 +1194,121 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
       h('thead', {}, [
         h('tr', {}, [
           h('th', { text: 'Hotkey' }),
-          h('th', { text: 'Browser shortcut' }),
-          h('th', { text: '' }),
+          h('th', { text: 'In OBS' }),
+          h('th', { text: 'Browser' }),
           h('th', { text: '' }),
         ]),
       ])
     );
     const tbody = h('tbody');
 
-    const persist = () => {
-      saveBindings(bindings);
-      window.dispatchEvent(new CustomEvent('webmix:hotkeys-changed'));
-    };
+    for (const entry of entries) {
+      const nameCell = h('th.obs-hotkey-name', {}, [
+        h('div', { text: entry.name }),
+        entry.description ? h('div.obs-muted.obs-hotkey-description', { text: entry.description }) : null,
+      ]);
 
-    for (const hotkey of hotkeys) {
-      const shortcutCell = h('td.obs-hotkey-combo', {
-        text: bindings[hotkey] ? normalizeCombo(bindings[hotkey]) : '\u2014',
+      const obsCell = h('td.obs-hotkey-combo', {
+        text: entry.bindings ? entry.bindings.join(', ') || '\u2014' : 'n/a',
       });
+      if (entry.bindings) {
+        const bindButton = h('button.obs-btn.flat', {
+          type: 'button',
+          text: 'Bind',
+          title: 'Press a key combination to bind it in OBS',
+          on: {
+            click: () => {
+              bindButton.textContent = 'Press a key...';
+              bindButton.classList.add('is-active');
+              captureObsKey(async (binding) => {
+                bindButton.textContent = 'Bind';
+                bindButton.classList.remove('is-active');
+                if (!binding) return;
+                const result = await bindHotkey(entry.name, binding.keyName, binding.modifiers);
+                if (result?.ok) {
+                  onStatus?.(`${entry.name} bound to ${describeCombo(binding)}`, 'success');
+                  renderHotkeys();
+                } else {
+                  onStatus?.(result?.error ?? 'Could not bind the hotkey', 'warning');
+                }
+              });
+            },
+          },
+        });
+        const unbind = h('button.obs-btn.flat', {
+          type: 'button',
+          text: 'Clear',
+          disabled: !(entry.bindings ?? []).length,
+          on: {
+            click: async () => {
+              const result = await clearHotkey(entry.name);
+              if (result?.ok) renderHotkeys();
+              else onStatus?.(result?.error ?? 'Could not clear the hotkey', 'warning');
+            },
+          },
+        });
+        obsCell.append(h('div.obs-hotkey-actions', {}, [bindButton, unbind]));
+      }
 
-      const bindButton = h('button.obs-btn.flat', {
+      const browserCell = h('td.obs-hotkey-combo', {
+        text: browserBindings[entry.name] ? normalizeCombo(browserBindings[entry.name]) : '\u2014',
+      });
+      const browserBind = h('button.obs-btn.flat', {
         type: 'button',
         text: 'Bind',
         on: {
           click: () => {
-            bindButton.textContent = 'Press a key...';
-            bindButton.classList.add('is-active');
+            browserBind.textContent = 'Press a key...';
+            browserBind.classList.add('is-active');
             captureCombo((combo) => {
-              bindButton.textContent = 'Bind';
-              bindButton.classList.remove('is-active');
-              if (combo) {
-                // A combination can only drive one hotkey.
-                for (const [name, bound] of Object.entries(bindings)) {
-                  if (normalizeCombo(bound) === combo) delete bindings[name];
-                }
-                bindings[hotkey] = combo;
-                persist();
-                renderHotkeys();
+              browserBind.textContent = 'Bind';
+              browserBind.classList.remove('is-active');
+              if (!combo) return;
+              for (const [other, bound] of Object.entries(browserBindings)) {
+                if (normalizeCombo(bound) === combo) delete browserBindings[other];
               }
+              browserBindings[entry.name] = combo;
+              persistBrowser();
+              renderHotkeys();
             });
           },
         },
       });
-
-      const clearButton = h('button.obs-btn.flat', {
+      const browserClear = h('button.obs-btn.flat', {
         type: 'button',
         text: 'Clear',
-        disabled: !bindings[hotkey],
+        disabled: !browserBindings[entry.name],
         on: {
           click: () => {
-            delete bindings[hotkey];
-            persist();
+            delete browserBindings[entry.name];
+            persistBrowser();
             renderHotkeys();
           },
         },
       });
+      browserCell.append(h('div.obs-hotkey-actions', {}, [browserBind, browserClear]));
 
-      tbody.appendChild(
-        h('tr', {}, [
-          h('th', { text: hotkey }),
-          shortcutCell,
-          h('td', {}, [bindButton]),
-          h('td', {}, [
-            clearButton,
-            h('button.obs-btn.flat', {
-              type: 'button',
-              text: 'Trigger',
-              on: {
-                click: async () => {
-                  try {
-                    await api.triggerHotkeyByName(hotkey);
-                  } catch (err) {
-                    onStatus?.(err.message, 'error');
-                  }
-                },
-              },
-            }),
-          ]),
-        ])
-      );
+      const triggerCell = h('td', {}, [
+        h('button.obs-btn.flat', {
+          type: 'button',
+          text: 'Trigger',
+          on: {
+            click: async () => {
+              try {
+                await api.triggerHotkeyByName(entry.name);
+              } catch (err) {
+                onStatus?.(err.message, 'error');
+              }
+            },
+          },
+        }),
+      ]);
+
+      tbody.appendChild(h('tr', {}, [nameCell, obsCell, browserCell, triggerCell]));
     }
     table.appendChild(tbody);
     body.appendChild(table);
+    return table;
   }
 
   dialog.body.append(tabStrip, body);

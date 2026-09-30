@@ -221,6 +221,76 @@ try {
     awaitPromise: true,
   });
 
+  // Bridge operations: scene order, transition management and hotkey rebinding
+  // have no obs-websocket request at all, so they run through the embedded
+  // server. Each assertion checks the effect on OBS itself.
+  const { result: bridgeResult } = await cdp.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const api = window.webmix.api;
+      const out = {};
+      const post = async (path) => (await fetch(path, { method: 'POST' })).json();
+      const sceneNames = () => window.webmix.store.state.scenes.map((s) => s.sceneName);
+      const transitionNames = async () =>
+        (await api.request('GetSceneTransitionList')).transitions.map((t) => t.transitionName);
+
+      for (const name of ['Live A', 'Live B', 'Live C']) {
+        try { await api.createScene(name); } catch { /* exists */ }
+      }
+      await api.refreshScenes();
+      const before = sceneNames();
+      const from = before.indexOf('Live A');
+      out.move = await post('api/scenes/move?from=' + from + '&to=0');
+      await api.refreshScenes();
+      const after = sceneNames();
+      out.sceneFrom = from;
+      out.sceneBefore = before.slice(0, 3);
+      out.sceneAfter = after.slice(0, 3);
+      out.sceneMoved = from > 0 && after[0] === 'Live A';
+      out.sceneBadIndex = await post('api/scenes/move?from=0&to=999');
+
+      out.add = await post('api/transitions/add?kind=fade_to_color_transition&name=Live%20Wipe');
+      out.added = (await transitionNames()).includes('Live Wipe');
+      out.addDuplicate = await post('api/transitions/add?kind=fade_to_color_transition&name=Live%20Wipe');
+      out.rename = await post('api/transitions/rename?name=Live%20Wipe&newName=Live%20Wipe%202');
+      out.renamed = (await transitionNames()).includes('Live Wipe 2');
+      out.remove = await post('api/transitions/remove?name=Live%20Wipe%202');
+      out.removed = !(await transitionNames()).includes('Live Wipe 2');
+
+      out.bind = await post('api/hotkeys/bind?name=OBSBasic.StartRecording&key=OBS_KEY_F9&modifiers=control');
+      const hotkeys = await (await fetch('api/hotkeys')).json();
+      out.binding = hotkeys.hotkeys.find((h) => h.name === 'OBSBasic.StartRecording')?.bindings ?? [];
+      out.badKey = await post('api/hotkeys/bind?name=OBSBasic.StartRecording&key=OBS_KEY_NOPE&modifiers=');
+      out.clear = await post('api/hotkeys/clear?name=OBSBasic.StartRecording');
+      const after2 = await (await fetch('api/hotkeys')).json();
+      out.cleared = (after2.hotkeys.find((h) => h.name === 'OBSBasic.StartRecording')?.bindings ?? []).length === 0;
+
+      for (const name of ['Live A', 'Live B', 'Live C']) {
+        try { await api.removeScene(name); } catch { /* ignore */ }
+      }
+      return JSON.stringify(out);
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  let bridge = {};
+  try {
+    bridge = JSON.parse(bridgeResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  bridge ops: ${JSON.stringify(bridge)}`);
+
+  check('scene reorder works through the bridge', bridge.move?.ok === true && bridge.sceneMoved === true);
+  check('scene reorder rejects out-of-range indices', bridge.sceneBadIndex?.ok === false);
+  check('transition created in OBS', bridge.add?.ok === true && bridge.added === true);
+  check('duplicate transition name rejected', bridge.addDuplicate?.ok === false);
+  check('transition renamed in OBS', bridge.rename?.ok === true && bridge.renamed === true);
+  check('transition removed from OBS', bridge.remove?.ok === true && bridge.removed === true);
+  check(
+    'hotkey rebound in OBS',
+    bridge.bind?.ok === true && (bridge.binding ?? []).some((b) => /F9/.test(b))
+  );
+  check('unknown key rejected', bridge.badKey?.ok === false);
+  check('hotkey cleared', bridge.clear?.ok === true && bridge.cleared === true);
+
   // Preview rendering: with the embedded server the OBS frames are streamed and
   // drawn by WebGPU, so check the backend really is the GPU one and that frames
   // are arriving (not just that a canvas exists).
@@ -305,6 +375,48 @@ try {
   const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
   writeFileSync(SCREENSHOT, Buffer.from(shot.data, 'base64'));
   console.log(`screenshot: ${SCREENSHOT} (${existsSync(SCREENSHOT) ? 'written' : 'MISSING'})`);
+
+  // Settings > Hotkeys must show the bindings OBS actually has (via the
+  // bridge), not just hotkey names.
+  await cdp.send('Runtime.evaluate', {
+    expression: `window.webmix.ui.dispatch('openSettings')`,
+    awaitPromise: true,
+  });
+  await delay(700);
+  await cdp.send('Runtime.evaluate', {
+    expression: `[...document.querySelectorAll('.obs-tab')].find((t) => t.textContent.trim() === 'Hotkeys')?.click()`,
+  });
+  await delay(900);
+  const { result: hotkeyTabResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify({
+      table: !!document.querySelector('.obs-hotkey-table'),
+      rows: document.querySelectorAll('.obs-hotkey-table tbody tr').length,
+      headers: [...document.querySelectorAll('.obs-hotkey-table thead th')].map((th) => th.textContent.trim()),
+      hasObsColumn: [...document.querySelectorAll('.obs-hotkey-table tbody tr')]
+        .some((row) => /OBS_KEY|\\u2014|n\\/a/.test(row.children[1]?.textContent ?? '')),
+      hasBindButtons: [...document.querySelectorAll('.obs-hotkey-table button')].some((b) => b.textContent.trim() === 'Bind'),
+    })`,
+    returnByValue: true,
+  });
+  let hotkeyTab = {};
+  try {
+    hotkeyTab = JSON.parse(hotkeyTabResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  hotkeys tab: ${JSON.stringify(hotkeyTab)}`);
+  check('hotkeys tab renders every hotkey', hotkeyTab.table === true && hotkeyTab.rows >= 20);
+  check(
+    'hotkeys tab separates OBS bindings from browser shortcuts',
+    (hotkeyTab.headers ?? []).includes('In OBS') && (hotkeyTab.headers ?? []).includes('Browser')
+  );
+  check('hotkeys tab offers rebinding', hotkeyTab.hasBindButtons === true);
+
+  const hotkeyShot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+  writeFileSync(SCREENSHOT.replace(/\.png$/, '-hotkeys.png'), Buffer.from(hotkeyShot.data, 'base64'));
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('.obs-modal-backdrop .obs-dialog-close')?.click()`,
+  });
+  await delay(200);
 
   check('no uncaught page exceptions', pageErrors.length === 0);
   check('no console errors', consoleErrors.length === 0);

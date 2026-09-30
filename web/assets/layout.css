@@ -1239,3 +1239,26 @@ body.obs-app {
   display: block;
   background: var(--obs-preview-bg);
 }
+
+/* Hotkey settings: one row carries the OBS binding, the browser shortcut and
+   the actions for each. */
+.obs-hotkey-name div:first-child {
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.obs-hotkey-description {
+  font-size: var(--obs-font-size-xsmall, 9px);
+  white-space: normal;
+}
+
+.obs-hotkey-actions {
+  display: inline-flex;
+  gap: var(--obs-padding-small);
+  margin-top: 2px;
+}
+
+.obs-hotkey-table td,
+.obs-hotkey-table th {
+  vertical-align: top;
+  padding: var(--obs-padding-base) var(--obs-padding-large);
+}

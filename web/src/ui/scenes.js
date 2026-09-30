@@ -14,6 +14,7 @@ import { h, reconcile, setText, setClass, clear } from '../dom.js';
 import { iconButton, icon } from './icons.js';
 import { showContextMenu, prompt, confirm } from './dialog.js';
 import { Topic, selectors } from '../store.js';
+import { moveScene } from '../bridge.js';
 
 export class ScenesPanel {
   constructor({ store, api, onStatus }) {
@@ -144,11 +145,38 @@ export class ScenesPanel {
   }
 
   move(direction) {
-    // obs-websocket 5.7 has no SetSceneIndex/ReorderScene request.
-    this.onStatus?.(
-      'Reordering scenes is not exposed by obs-websocket; use the OBS desktop UI or the WebMIX bridge',
-      'warning'
-    );
+    const state = this.store.state;
+    const index = state.scenes.findIndex((s) => s.sceneName === this.selected);
+    if (index < 0) return;
+    const target = direction < 0 ? index - 1 : index + 1;
+    if (target < 0 || target >= state.scenes.length) return;
+    this.moveTo(target);
+  }
+
+  moveToTop() {
+    this.moveTo(0);
+  }
+
+  moveToBottom() {
+    this.moveTo(this.store.state.scenes.length - 1);
+  }
+
+  /**
+   * Reorder through the WebMIX bridge: there is no obs-websocket request for
+   * this, so without the bridge (external static server) it stays unavailable.
+   */
+  async moveTo(target) {
+    const state = this.store.state;
+    const index = state.scenes.findIndex((s) => s.sceneName === this.selected);
+    if (index < 0 || target === index || target < 0 || target >= state.scenes.length) return;
+
+    const result = await moveScene(index, target);
+    if (result?.ok) {
+      await this.api.refreshScenes();
+      this.store.notify(Topic.Scenes);
+    } else {
+      this.onStatus?.(result?.error ?? 'Could not reorder scenes', 'warning');
+    }
   }
 
   openFilters() {
@@ -230,6 +258,8 @@ export class ScenesPanel {
       { separator: true },
       { label: 'Move Up', disabled: !name || index <= 0, action: () => this.move(-1) },
       { label: 'Move Down', disabled: !name || index >= state.scenes.length - 1, action: () => this.move(1) },
+      { label: 'Move to Top', disabled: !name || index <= 0, action: () => this.moveToTop() },
+      { label: 'Move to Bottom', disabled: !name || index >= state.scenes.length - 1, action: () => this.moveToBottom() },
       { separator: true },
       { label: 'Filters', disabled: !name, action: () => this.openFilters() },
       { label: 'Properties', disabled: !name, action: () => this.openProperties() },

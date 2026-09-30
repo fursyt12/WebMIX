@@ -60,6 +60,10 @@ WebHost=127.0.0.1
 | `GET /api/preview.jpg` | A single preview frame. |
 | `GET /api/properties/source\|filter\|transition` | The real `obs_properties_t` schema (labels, types, ranges, list items, groups, visibility) plus current values. |
 | `POST /api/properties/press` | Invokes a button property. |
+| `POST /api/scenes/move` | Reorders scenes (no obs-websocket request exists). Indices are display order, `0` = top. |
+| `POST /api/transitions/add\|rename\|remove` | Creates, renames and removes transition instances; built-in Cut/Fade stay protected. |
+| `GET /api/hotkeys` | Every hotkey with the bindings OBS itself reports (formatted by OBS). |
+| `POST /api/hotkeys/bind\|clear` | Rebinds a hotkey in OBS and persists it to the active profile. |
 | everything else | Static files from this directory; unknown paths fall back to `index.html`. |
 
 Requests containing `..` (including percent-encoded) are rejected with 403, and
@@ -119,9 +123,9 @@ obs --web --web-port 4460
 ## Tests
 
 ```bash
-npm test              # 71 unit/integration tests (protocol client, store, fader, MJPEG parser, UI structure)
+npm test              # 76 unit/integration tests (protocol client, store, fader, MJPEG parser, UI structure)
 npm run test:browser  # headless-Chromium end-to-end check of the mock-backed UI (52 assertions)
-npm run test:live     # against a real `obs --web` instance (17 assertions, incl. GPU pixels)
+npm run test:live     # against a real `obs --web` instance (29 assertions, incl. GPU pixels)
 ```
 
 `npm run test:browser` boots the mock obs-websocket server, loads the real UI in
@@ -184,7 +188,12 @@ Everything below operates the **live** OBS instance:
 * **Audio** — the full Advanced Audio Properties table: volume (dB), mute,
   monitoring, balance, sync offset, six track checkboxes.
 * **Scene Transitions** — transition selection, duration, T-Bar, studio
-  transition trigger, studio-mode UI.
+  transition trigger, studio-mode UI, plus creating, renaming and removing
+  transition instances through the bridge.
+* **Scenes (ordering)** — Move Up/Down and Move to Top/Bottom reorder the real
+  OBS list. Note that obs-websocket returns scenes **bottom-first** while the
+  desktop list and WebMIX are top-first, so the protocol order is flipped once
+  on the way in (`toDisplayOrder()` in `src/store.js`).
 * **Controls** — Start/Stop Streaming, Start/Pause/Stop Recording, Replay
   Buffer + Save Replay, Virtual Camera, Studio Mode, Settings.
 * **Outputs & status** — live stream/record timers, dropped frames, bitrate,
@@ -247,10 +256,10 @@ silently.
 | Area | Gap |
 | --- | --- |
 | Preview video | Solved in `--web` mode by the embedded MJPEG endpoint + WebGPU. Served externally (plain static server) it still falls back to `GetSourceScreenshot` polling. |
-| Scene order | No `SetSceneIndex`/reorder request exists. |
-| Transition management | Transitions can be selected/configured/triggered but not created, renamed or removed. |
+| Scene order | No obs-websocket request exists, so it runs through the bridge (`POST /api/scenes/move`). Unavailable when the UI is served externally. |
+| Transition management | Same: bridge-only (`/api/transitions/*`). |
 | Properties / filter settings | Solved when OBS serves the UI (`/api/properties/*` serialises `obs_properties_t`). With an external server the fallback key-based form is used. |
-| Hotkey bindings | OBS's own bindings cannot be changed. WebMIX works around this by capturing combinations in the browser (Settings > Hotkeys) and forwarding them as triggers. |
+| Hotkey bindings | The bridge rebinds them in OBS and persists them (`/api/hotkeys/bind`). Separately, the browser can capture a shortcut and send `TriggerHotkeyByName` - which is what works while OBS is headless, since a window-less OBS never receives key presses. |
 | Custom browser docks | Implemented, but a real browser enforces `X-Frame-Options` / CSP `frame-ancestors`, which OBS's embedded browser ignores. Sites that refuse framing (many do) cannot be docked outside OBS; the dock reports it. |
 | Scene collections / profiles | List/switch/create/remove work, but duplicate/rename/import/export do not. |
 | Undo/redo, source group/ungroup, copy/paste duplicate | Not exposed. |

@@ -11,8 +11,9 @@
  */
 import { h, reconcile, setText, setClass } from '../dom.js';
 import { iconButton } from './icons.js';
-import { showContextMenu } from './dialog.js';
+import { showContextMenu, prompt, confirm, openDialog, dialogButtons } from './dialog.js';
 import { Topic } from '../store.js';
+import { addTransition, renameTransition, removeTransition } from '../bridge.js';
 
 export class TransitionsPanel {
   constructor({ store, api, onStatus }) {
@@ -91,18 +92,142 @@ export class TransitionsPanel {
     ]);
   }
 
-  addTransition() {
-    this.onStatus?.(
-      'Creating transitions is not exposed by obs-websocket; add it in the OBS desktop UI',
-      'warning'
-    );
+  /** OBS instantiate-a-transition dialog: pick a kind, then a name. */
+  async addTransition() {
+    let kinds;
+    try {
+      kinds = (await this.api.request('GetTransitionKindList')).transitionKinds ?? [];
+    } catch (err) {
+      this.onStatus?.(err.message, 'error');
+      return;
+    }
+    if (!kinds.length) {
+      this.onStatus?.('OBS reported no transition kinds', 'warning');
+      return;
+    }
+
+    const chosen = await this.#pickKind(kinds);
+    if (!chosen) return;
+
+    const name = await prompt({
+      title: 'Add Transition',
+      label: 'Transition name',
+      value: chosen.display,
+    });
+    if (!name) return;
+
+    const result = await addTransition(chosen.id, name);
+    if (result?.ok) {
+      await this.refresh();
+      this.onStatus?.(`Transition "${name}" created`, 'success');
+    } else {
+      this.onStatus?.(result?.error ?? 'Could not create the transition', 'warning');
+    }
   }
 
-  removeTransition() {
-    this.onStatus?.(
-      'Removing transitions is not exposed by obs-websocket; manage it in the OBS desktop UI',
-      'warning'
-    );
+  async removeTransition() {
+    const name = this.store.state.currentTransition.transitionName;
+    if (!name) return;
+    const ok = await confirm({
+      title: 'Remove Transition',
+      text: `Remove transition "${name}"?`,
+      okLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+
+    const result = await removeTransition(name);
+    if (result?.ok) {
+      await this.refresh();
+      this.onStatus?.(`Transition "${name}" removed`, 'success');
+    } else {
+      this.onStatus?.(result?.error ?? 'Could not remove the transition', 'warning');
+    }
+  }
+
+  async renameCurrentTransition() {
+    const name = this.store.state.currentTransition.transitionName;
+    if (!name) return;
+    const newName = await prompt({
+      title: 'Rename Transition',
+      label: 'Transition name',
+      value: name,
+    });
+    if (!newName || newName === name) return;
+
+    const result = await renameTransition(name, newName);
+    if (result?.ok) {
+      await this.refresh();
+      this.onStatus?.(`Renamed to "${newName}"`, 'success');
+    } else {
+      this.onStatus?.(result?.error ?? 'Could not rename the transition', 'warning');
+    }
+  }
+
+  /** Re-read the transition list from OBS (and the current selection). */
+  async refresh() {
+    try {
+      const [list, current] = await Promise.all([
+        this.api.request('GetSceneTransitionList'),
+        this.api.request('GetCurrentSceneTransition'),
+      ]);
+      this.store.batch(() => {
+        this.store.state.transitions = list.transitions ?? [];
+        this.store.state.currentTransition = {
+          ...this.store.state.currentTransition,
+          transitionName: current.transitionName ?? list.currentSceneTransitionName ?? null,
+          transitionKind: current.transitionKind ?? list.currentSceneTransitionKind ?? null,
+          transitionDuration: current.transitionDuration ?? 300,
+          transitionFixed: current.transitionFixed ?? false,
+          transitionConfigurable: current.transitionConfigurable ?? false,
+        };
+      });
+      this.store.notify(Topic.Transitions);
+    } catch (err) {
+      this.onStatus?.(err.message, 'error');
+    }
+  }
+
+  /** Small dialog listing the transition kinds OBS offers. */
+  #pickKind(kinds) {
+    return new Promise((resolve) => {
+      const list = h('ul.obs-list.obs-scroll', { style: { maxHeight: '260px' } });
+      let selected = kinds[0];
+      for (const id of kinds) {
+        const display = id
+          .replace(/_transition$/, '')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+        const row = h('li.obs-list-item', { dataset: { kind: id }, role: 'option' }, [
+          h('span.obs-list-label', { text: display }),
+        ]);
+        if (id === selected) row.classList.add('is-selected');
+        row.addEventListener('click', () => {
+          selected = id;
+          for (const other of list.children) other.classList.remove('is-selected');
+          row.classList.add('is-selected');
+        });
+        list.appendChild(row);
+      }
+
+      const dialog = openDialog({
+        title: 'Transition Type',
+        width: 380,
+        body: [h('label.obs-label', { text: 'Transition' }), list],
+        footer: dialogButtons([
+          { label: 'Cancel', action: () => dialog.close() },
+          {
+            label: 'OK',
+            primary: true,
+            action: () => {
+              dialog.close();
+              resolve({ id: selected, display: selected.replace(/_transition$/, '').replace(/_/g, ' ') });
+            },
+          },
+        ]),
+        onClose: () => resolve(null),
+      });
+    });
   }
 
   openPropsMenu(event) {
@@ -110,7 +235,7 @@ export class TransitionsPanel {
     showContextMenu(
       { x: rect.left, y: rect.top - 4 },
       [
-        { label: 'Rename...', action: () => this.onStatus?.('Renaming transitions requires the desktop UI', 'warning') },
+        { label: 'Rename...', action: () => this.renameCurrentTransition() },
         { label: 'Properties', action: () => this.openProperties() },
       ]
     );
