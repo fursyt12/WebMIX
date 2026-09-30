@@ -1384,3 +1384,18 @@ body.obs-app {
   font-size: var(--obs-font-size-small, 10px);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 }
+
+/* Settings pages: grouped sections. */
+.obs-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-base);
+}
+
+.obs-settings-group[hidden] {
+  display: none;
+}
+
+.obs-dialog-actions .obs-btn {
+  min-width: 90px;
+}

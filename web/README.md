@@ -65,6 +65,7 @@ WebHost=127.0.0.1
 | `POST /api/transitions/add\|rename\|remove` | Creates, renames and removes transition instances; built-in Cut/Fade stay protected. |
 | `GET /api/hotkeys` | Every hotkey with the bindings OBS itself reports (formatted by OBS). |
 | `POST /api/hotkeys/bind\|clear` | Rebinds a hotkey in OBS and persists it to the active profile. |
+| `GET /api/encoders` | The Simple-output encoder, format and quality choices OBS offers, with its own localised labels and which ones this machine supports. |
 | `GET /api/files/list` | Lists a directory OBS uses (`kind=recordings\|logs\|crashes\|config\|profile`, optional `path=` for a subdirectory). |
 | `GET /api/files/download` | Streams a file from one of those directories as an attachment. |
 | `GET /api/files/text` | Reads the tail of a text file, for the inline log viewer. |
@@ -75,7 +76,12 @@ the resolved path must stay inside the web root.
 
 ## Quick start — external server
 
-Useful for development, or to serve the UI from a different machine:
+Useful for development, or to serve the UI from a different machine. Start OBS
+with `--web` as well and this server **forwards the bridge paths to it**
+(`--bridge <url>`, default `http://127.0.0.1:4456`), so the externally served
+page gets the same feature set: GPU preview, property schema, multiview, file
+access and the extra operations. Without a bridge it still works, but the
+preview falls back to `GetSourceScreenshot` polling.
 
 ```bash
 # 1. Enable OBS's WebSocket server (it ships with OBS but is off by default).
@@ -127,9 +133,9 @@ obs --web --web-port 4460
 ## Tests
 
 ```bash
-npm test              # 76 unit/integration tests (protocol client, store, fader, MJPEG parser, UI structure)
+npm test              # 81 unit/integration tests (protocol client, store, fader, MJPEG parser, UI structure)
 npm run test:browser  # headless-Chromium end-to-end check of the mock-backed UI (52 assertions)
-npm run test:live     # against a real `obs --web` instance (29 assertions, incl. GPU pixels)
+npm run test:live     # against a real `obs --web` instance (51 assertions, incl. GPU pixels)
 ```
 
 `npm run test:browser` boots the mock obs-websocket server, loads the real UI in
@@ -215,6 +221,10 @@ Everything below operates the **live** OBS instance:
 * **Dialogs** — Transform (fully faithful: position, rotation, scale, bounds,
   crop, alignment grid), Stats, Advanced Audio, Properties, Filters,
   Settings (Stream / Output / Video / Audio / Advanced / Hotkeys), About.
+  The Output page covers OBS's Simple mode: stream and recording encoders (the
+  same option set and localised names the desktop offers, filtered to what this
+  machine supports), video/audio bitrate, recording path, container, quality and
+  the replay buffer - all read and written through the active profile.
 * **Stats dock** — View > Docks > Stats, rendering the same figures as the
   Stats dialog (both are generated from one `statsRows()` source).
 * **Multiview** — View > Multiview opens a full-screen grid of every scene.
@@ -293,7 +303,7 @@ silently.
 
 | Area | Gap |
 | --- | --- |
-| Preview video | Solved in `--web` mode by the embedded MJPEG endpoint + WebGPU. Served externally (plain static server) it still falls back to `GetSourceScreenshot` polling. |
+| Preview video | Solved in `--web` mode by the embedded MJPEG endpoint + WebGPU, and for the external server by forwarding `/api/*` to the bridge. Only a plain static host with no bridge falls back to `GetSourceScreenshot` polling. |
 | Scene order | No obs-websocket request exists, so it runs through the bridge (`POST /api/scenes/move`). Unavailable when the UI is served externally. |
 | Transition management | Same: bridge-only (`/api/transitions/*`). |
 | Properties / filter settings | Solved when OBS serves the UI (`/api/properties/*` serialises `obs_properties_t`). With an external server the fallback key-based form is used. |

@@ -10,7 +10,7 @@
  * The web app talks to OBS directly over WebSocket (default port 4455), so
  * this server is only needed to deliver the files (and for `npm run dev`).
  */
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -27,6 +27,60 @@ const getArg = (name, fallback) => {
 
 const PORT = Number(getArg('port', process.env.PORT ?? 8080));
 const HOST = getArg('host', process.env.HOST ?? '127.0.0.1');
+
+/*
+ * When OBS runs with --web it also serves a bridge (preview frames, property
+ * schema, file access, scene/transition/hotkey operations). This server can
+ * forward the bridge paths to it, so a page served from here gets the same
+ * feature set - which is what makes previewing work without --web-host.
+ */
+const BRIDGE = new URL(getArg('bridge', process.env.WEBMIX_BRIDGE ?? 'http://127.0.0.1:4456'));
+const BRIDGE_PATHS = /^\/(api\/|obs-config\.json)/;
+let bridgeAlive = null;
+let bridgeCheckedAt = 0;
+
+async function bridgeIsUp() {
+  const now = Date.now();
+  if (bridgeAlive !== null && now - bridgeCheckedAt < 5000) return bridgeAlive;
+  bridgeCheckedAt = now;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1200);
+    const response = await fetch(new URL('/api/status', BRIDGE), { signal: controller.signal });
+    clearTimeout(timer);
+    const data = response.ok ? await response.json() : null;
+    bridgeAlive = data?.webmix === true;
+  } catch {
+    bridgeAlive = false;
+  }
+  return bridgeAlive;
+}
+
+/** Forward a request to the OBS bridge, streaming the response through. */
+function proxyToBridge(req, res, pathname, search) {
+  const target = new URL(pathname + search, BRIDGE);
+  const upstream = httpRequest(
+    {
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname + target.search,
+      method: req.method,
+      headers: { ...req.headers, host: target.host },
+    },
+    (upstreamResponse) => {
+      res.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
+      // pipe (not buffer): preview streams must flow frame by frame
+      upstreamResponse.pipe(res);
+    }
+  );
+  upstream.on('error', () => {
+    if (!res.headersSent) {
+      res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
+    }
+    res.end('The OBS bridge stopped responding');
+  });
+  req.pipe(upstream);
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -70,6 +124,11 @@ async function serveFile(res, filePath) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
+  if (BRIDGE_PATHS.test(url.pathname) && (await bridgeIsUp())) {
+    proxyToBridge(req, res, url.pathname, url.search);
+    return;
+  }
+
   if (url.pathname === '/obs-config.json') {
     const config = await readObsWebSocketConfig();
     if (!config) {
@@ -88,7 +147,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === '/health') {
-    sendJson(res, 200, { ok: true, root: ROOT });
+    sendJson(res, 200, { ok: true, root: ROOT, bridge: BRIDGE.origin, bridgeUp: await bridgeIsUp() });
     return;
   }
 
@@ -104,9 +163,15 @@ const server = createServer(async (req, res) => {
   await serveFile(res, filePath);
 });
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, async () => {
   const config = obsWebSocketConfigPath();
   console.log(`WebMIX web UI:  http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/`);
   console.log(`OBS websocket config read from: ${config}`);
+  console.log(
+    (await bridgeIsUp())
+      ? `Forwarding bridge requests to ${BRIDGE.origin} (preview, properties, files, operations)`
+      : `No OBS bridge at ${BRIDGE.origin}: preview will fall back to screenshots. ` +
+          'Start OBS with --web, or pass --bridge <url>.'
+  );
   console.log('Open the page and connect to OBS (Tools > WebSocket Server Settings).');
 });

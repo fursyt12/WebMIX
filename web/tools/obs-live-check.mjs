@@ -580,6 +580,85 @@ try {
   );
   check('colour conversions round-trip against OBS', colour.roundTrips === true);
 
+  // Output settings: the Simple mode choices must come from OBS, with the
+  // localised names it uses, and round-trip through the active profile.
+  const { result: outputResult } = await cdp.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const out = {};
+      const encoders = await (await fetch('api/encoders')).json();
+      out.streamValues = (encoders.videoStreaming ?? []).map((e) => e.value);
+      out.available = (encoders.videoStreaming ?? []).filter((e) => e.available).map((e) => e.value);
+      out.hasLocalisedLabels = (encoders.videoStreaming ?? []).every((e) => typeof e.label === 'string' && e.label.length > 0);
+      out.formats = (encoders.recordingFormats ?? []).map((f) => f.value);
+      out.qualities = (encoders.recordingQualities ?? []).map((q) => q.value);
+      out.audioValues = (encoders.audio ?? []).map((a) => a.value);
+      // The values the UI offers must be the values OBS stores in the profile,
+      // otherwise the dialog would silently fall back to a "(current)" entry.
+      out.storedFormat = await window.webmix.api.getProfileParameter('SimpleOutput', 'RecFormat2');
+      out.storedAudio = await window.webmix.api.getProfileParameter('SimpleOutput', 'StreamAudioEncoder');
+
+      // Write through the same API the dialog uses, then read back from OBS.
+      const original = await window.webmix.api.getProfileParameter('SimpleOutput', 'VBitrate');
+      await window.webmix.api.setProfileParameter('SimpleOutput', 'VBitrate', '4321');
+      out.readBack = await window.webmix.api.getProfileParameter('SimpleOutput', 'VBitrate');
+      await window.webmix.api.setProfileParameter('SimpleOutput', 'VBitrate', original || '2500');
+      out.restored = await window.webmix.api.getProfileParameter('SimpleOutput', 'VBitrate');
+      return JSON.stringify(out);
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  let output = {};
+  try {
+    output = JSON.parse(outputResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  output settings: ${JSON.stringify(output)}`);
+  check('OBS offers its encoder list', (output.streamValues ?? []).includes('x264') && (output.streamValues ?? []).length >= 5);
+  check('encoder names are localised by OBS', output.hasLocalisedLabels === true);
+  check('at least one encoder is available here', (output.available ?? []).length >= 1);
+  check('recording formats and qualities listed', (output.formats ?? []).includes('mkv') && (output.qualities ?? []).includes('HQ'));
+  check(
+    'offered values match what OBS stores',
+    (output.formats ?? []).includes(output.storedFormat) &&
+      (output.audioValues ?? []).includes(output.storedAudio)
+  );
+  check('profile parameters round-trip through OBS', output.readBack === '4321' && output.restored !== '4321');
+
+  // The Settings dialog must render those as real controls.
+  await cdp.send('Runtime.evaluate', {
+    expression: `window.webmix.ui.dispatch('openSettings')`,
+    awaitPromise: true,
+  });
+  await delay(800);
+  await cdp.send('Runtime.evaluate', {
+    expression: `[...document.querySelectorAll('.obs-tab')].find((t) => t.textContent.trim() === 'Output')?.click()`,
+  });
+  await delay(900);
+  const { result: outputUiResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify({
+      selects: document.querySelectorAll('.obs-settings-body select').length,
+      numbers: document.querySelectorAll('.obs-settings-body input[type=number]').length,
+      firstEncoder: [...document.querySelectorAll('.obs-settings-body select')]
+        .flatMap((s) => [...s.options].map((o) => o.value))
+        .includes('x264'),
+    })`,
+    returnByValue: true,
+  });
+  let outputUi = {};
+  try {
+    outputUi = JSON.parse(outputUiResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  output page: ${JSON.stringify(outputUi)}`);
+  check('Output page renders selectors and numbers', (outputUi.selects ?? 0) >= 3 && (outputUi.numbers ?? 0) >= 3);
+  check('Output page offers the OBS encoders', outputUi.firstEncoder === true);
+
+  const outputShot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+  writeFileSync(SCREENSHOT.replace(/\.png$/, '-output-settings.png'), Buffer.from(outputShot.data, 'base64'));
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('.obs-modal-backdrop .obs-dialog-close')?.click()`,
+  });
+  await delay(300);
+
   // Settings > Hotkeys must show the bindings OBS actually has (via the
   // bridge), not just hotkey names.
   await cdp.send('Runtime.evaluate', {

@@ -33,7 +33,7 @@ import {
   normalizeCombo,
   describeCombo,
 } from '../hotkeys.js';
-import { fetchHotkeys, bindHotkey, clearHotkey } from '../bridge.js';
+import { fetchHotkeys, bindHotkey, clearHotkey, fetchEncoderOptions } from '../bridge.js';
 
 /* ------------------------------------------------------- generic properties */
 
@@ -1028,34 +1028,184 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
   }
 
   async function renderOutput() {
-    const mode = (await api.getProfileParameter('Output', 'Mode').catch(() => null)) ?? 'Simple';
-    const recordDir = await api.getRecordDirectory().catch(() => '');
+    /* OBS's Simple output mode is stored in the active profile, so it can be
+     * read and written over obs-websocket; the encoder choices come from the
+     * bridge (localised names plus which ones this machine supports). */
+    const encoderOptions = await fetchEncoderOptions();
+    const param = async (category, name, fallback = '') => {
+      try {
+        const value = await api.getProfileParameter(category, name);
+        return value === null || value === undefined || value === '' ? fallback : value;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const [
+      mode,
+      vbitrate,
+      abitrate,
+      streamEncoder,
+      streamAudioEncoder,
+      recEncoder,
+      recAudioEncoder,
+      recFormat,
+      recQuality,
+      recordDir,
+      replayEnabled,
+      replayTime,
+      replaySize,
+    ] = await Promise.all([
+      param('Output', 'Mode', 'Simple'),
+      param('SimpleOutput', 'VBitrate', '2500'),
+      param('SimpleOutput', 'ABitrate', '160'),
+      param('SimpleOutput', 'StreamEncoder', 'x264'),
+      param('SimpleOutput', 'StreamAudioEncoder', 'ffmpeg_aac'),
+      param('SimpleOutput', 'RecEncoder', 'x264'),
+      param('SimpleOutput', 'RecAudioEncoder', 'ffmpeg_aac'),
+      param('SimpleOutput', 'RecFormat2', 'mkv'),
+      param('SimpleOutput', 'RecQuality', 'Stream'),
+      api.getRecordDirectory().catch(() => ''),
+      param('SimpleOutput', 'RecRB', 'false'),
+      param('SimpleOutput', 'RecRBTime', '20'),
+      param('SimpleOutput', 'RecRBSize', '512'),
+    ]);
+
     const modeSelect = h(
       'select.obs-select',
       {},
       ['Simple', 'Advanced'].map((value) => h('option', { value, text: value }))
     );
-    modeSelect.value = mode || 'Simple';
-    const dir = h('input.obs-input', { type: 'text', value: recordDir });
+    modeSelect.value = mode;
+
+    const numberInput = (value, { min = '0', max = '1000000', step = '1' } = {}) =>
+      h('input.obs-input.obs-property-number', { type: 'number', value: String(value), min, max, step });
+
+    const vbitrateInput = numberInput(vbitrate, { min: '1', max: '100000' });
+    const abitrateInput = numberInput(abitrate, { min: '1', max: '1024' });
+    /* Two separate inputs: the same node cannot live in both groups (appending
+     * it to the second would move it out of the first). */
+    const dirInput = h('input.obs-input', { type: 'text', value: recordDir });
+    const dirInputAdvanced = h('input.obs-input', { type: 'text', value: recordDir });
+
+    const encoderSelect = (options, current, { allowUnavailable = false } = {}) => {
+      const select = h('select.obs-select');
+      const list = options ?? [];
+      let found = false;
+      for (const option of list) {
+        if (!allowUnavailable && option.available === false) continue;
+        const entry = h('option', { value: option.value, text: option.label });
+        if (option.value === current) {
+          entry.selected = true;
+          found = true;
+        }
+        select.appendChild(entry);
+      }
+      // Keep the configured value visible even when unsupported on this machine.
+      if (!found && current) select.appendChild(h('option', { value: current, text: `${current} (current)` }));
+      return select;
+    };
+
+    const streamEncoderSelect = encoderOptions
+      ? encoderSelect(encoderOptions.videoStreaming, streamEncoder)
+      : h('input.obs-input', { type: 'text', value: streamEncoder });
+    const recEncoderSelect = encoderOptions
+      ? encoderSelect(encoderOptions.videoRecording, recEncoder)
+      : h('input.obs-input', { type: 'text', value: recEncoder });
+    const streamAudioSelect = encoderOptions
+      ? encoderSelect(encoderOptions.audio, streamAudioEncoder)
+      : h('input.obs-input', { type: 'text', value: streamAudioEncoder });
+    const recAudioSelect = encoderOptions
+      ? encoderSelect(encoderOptions.audio, recAudioEncoder)
+      : h('input.obs-input', { type: 'text', value: recAudioEncoder });
+
+    const formatSelect = h(
+      'select.obs-select',
+      {},
+      (encoderOptions?.recordingFormats ?? [{ value: recFormat, label: recFormat }]).map((format) =>
+        h('option', { value: format.value, text: format.label })
+      )
+    );
+    formatSelect.value = recFormat;
+
+    const qualitySelect = h(
+      'select.obs-select',
+      {},
+      (encoderOptions?.recordingQualities ?? [{ value: recQuality, label: recQuality }]).map((quality) =>
+        h('option', { value: quality.value, text: quality.label })
+      )
+    );
+    qualitySelect.value = recQuality;
+
+    const replayBox = h('input.obs-checkbox', { type: 'checkbox', checked: String(replayEnabled) === 'true' });
+    const replayTimeInput = numberInput(replayTime, { min: '1', max: '3600' });
+    const replaySizeInput = numberInput(replaySize, { min: '1', max: '1048576' });
+
+    const simpleGroup = h('div.obs-settings-group', {}, [
+      h('div.obs-group-title', { text: 'Streaming' }),
+      field('Video Encoder', streamEncoderSelect),
+      field('Video Bitrate (Kbps)', vbitrateInput),
+      field('Audio Encoder', streamAudioSelect),
+      field('Audio Bitrate (Kbps)', abitrateInput),
+      h('div.obs-group-title', { text: 'Recording' }),
+      field('Recording Path', dirInput),
+      field('Recording Format', formatSelect, 'MKV is the safest container: a crash cannot corrupt it.'),
+      field('Recording Quality', qualitySelect),
+      field('Video Encoder', recEncoderSelect),
+      field('Audio Encoder', recAudioSelect),
+      h('div.obs-group-title', { text: 'Replay Buffer' }),
+      field('Enable Replay Buffer', replayBox),
+      field('Maximum Replay Time (s)', replayTimeInput),
+      field('Maximum Replay Memory (MB)', replaySizeInput),
+    ]);
+    simpleGroup.hidden = modeSelect.value !== 'Simple';
+
+    const advancedGroup = h('div.obs-settings-group', {}, [
+      h('div.obs-hint.obs-muted', {
+        text:
+          'In Advanced mode each output and its encoder have their own settings, stored per-encoder in the ' +
+          'profile. The active profile can be edited here with Get/SetProfileParameter, but the per-encoder ' +
+          'pages are not exposed by obs-websocket yet.',
+      }),
+      field('Recording Path', dirInputAdvanced),
+    ]);
+    advancedGroup.hidden = modeSelect.value !== 'Advanced';
+
+    modeSelect.addEventListener('change', () => {
+      simpleGroup.hidden = modeSelect.value !== 'Simple';
+      advancedGroup.hidden = modeSelect.value !== 'Advanced';
+    });
 
     clear(body);
     body.append(
       h('div.obs-group-title', { text: 'Output' }),
       field('Output Mode', modeSelect),
-      field('Recording Path', dir),
-      h('div.obs-hint.obs-muted', {
-        text:
-          'Encoder and format settings are stored in the active profile. Advanced per-encoder settings are not exposed by obs-websocket yet.',
-      }),
+      simpleGroup,
+      advancedGroup,
       h('div.obs-dialog-actions', {}, [
         h('button.obs-btn.primary', {
           type: 'button',
           text: 'Apply',
           on: {
             click: async () => {
+              const numeric = (el, fallback) => {
+                const value = Number(el.value);
+                return Number.isFinite(value) ? String(Math.round(value)) : fallback;
+              };
               try {
                 await api.setProfileParameter('Output', 'Mode', modeSelect.value);
-                await api.setRecordDirectory(dir.value);
+                await api.setProfileParameter('SimpleOutput', 'VBitrate', numeric(vbitrateInput, '2500'));
+                await api.setProfileParameter('SimpleOutput', 'ABitrate', numeric(abitrateInput, '160'));
+                await api.setProfileParameter('SimpleOutput', 'StreamEncoder', streamEncoderSelect.value);
+                await api.setProfileParameter('SimpleOutput', 'StreamAudioEncoder', streamAudioSelect.value);
+                await api.setProfileParameter('SimpleOutput', 'RecEncoder', recEncoderSelect.value);
+                await api.setProfileParameter('SimpleOutput', 'RecAudioEncoder', recAudioSelect.value);
+                await api.setProfileParameter('SimpleOutput', 'RecFormat2', formatSelect.value);
+                await api.setProfileParameter('SimpleOutput', 'RecQuality', qualitySelect.value);
+                await api.setProfileParameter('SimpleOutput', 'RecRB', replayBox.checked ? 'true' : 'false');
+                await api.setProfileParameter('SimpleOutput', 'RecRBTime', numeric(replayTimeInput, '20'));
+                await api.setProfileParameter('SimpleOutput', 'RecRBSize', numeric(replaySizeInput, '512'));
+                await api.setRecordDirectory(dirInput.value);
                 onStatus?.('Output settings saved', 'info');
                 onSaved?.();
               } catch (err) {

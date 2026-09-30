@@ -54,6 +54,14 @@ export async function removeTransition(name) {
   return post(`api/transitions/remove?name=${encodeURIComponent(name)}`);
 }
 
+/* ----------------------------------------------------------------- outputs */
+
+/** Encoder choices OBS offers, with localised names; null without the bridge. */
+export async function fetchEncoderOptions() {
+  const data = await get('api/encoders');
+  return data && Array.isArray(data.videoStreaming) ? data : null;
+}
+
 /* ----------------------------------------------------------------- hotkeys */
 
 /** Every hotkey with the bindings OBS itself reports, or null without the bridge. */
