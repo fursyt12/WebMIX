@@ -10,6 +10,7 @@ target_sources(
   PRIVATE
     webmix/OBSBasic_WebMix.cpp
     webmix/WebMixBridge.cpp
+    webmix/WebMixFiles.cpp
     webmix/WebMixBridge.hpp
     webmix/WebMixOperations.cpp
     webmix/WebMixPreview.cpp

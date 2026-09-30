@@ -169,6 +169,20 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 	}
 
 	url = QStringLiteral("http://%1:%2/").arg(address.toString()).arg(server->serverPort());
+
+	/* The UI is unauthenticated by design (it is a local control surface) and
+	 * it has to hand the browser the obs-websocket password, so binding beyond
+	 * loopback exposes both control of OBS and read access to itsconfig
+	 * directory to anyone who can reach the port. */
+	if (!address.isLoopback()) {
+		blog(LOG_WARNING, "[WebMIX] ---------------------------------------------------------------");
+		blog(LOG_WARNING, "[WebMIX] The web interface is reachable from the network (%s).",
+		     qUtf8Printable(address.toString()));
+		blog(LOG_WARNING, "[WebMIX] It is not authenticated and exposes the obs-websocket password, so anyone "
+				  "who can reach this port can control OBS. Use it only on a trusted network, or put a "
+				  "reverse proxy with authentication in front of it.");
+		blog(LOG_WARNING, "[WebMIX] ---------------------------------------------------------------");
+	}
 	blog(LOG_INFO, "[WebMIX] ---------------------------------------------------------------");
 	blog(LOG_INFO, "[WebMIX] Web interface: %s", qUtf8Printable(url));
 	blog(LOG_INFO, "[WebMIX] Serving files from: %s", qUtf8Printable(webRoot));
@@ -308,6 +322,84 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		return;
 	}
 
+	/* --- file access (recordings, logs, settings) -------------------------- */
+	if (path == "/api/files/list") {
+		const QString kind = query.queryItemValue("kind");
+		QJsonObject listing = WebMixBridge::ListDirectory(kind, query.queryItemValue("path"));
+		if (listing.contains("error")) {
+			SendJson(socket, QJsonDocument(listing).toJson(QJsonDocument::Compact), 400);
+			return;
+		}
+		SendJson(socket, QJsonDocument(listing).toJson(QJsonDocument::Compact));
+		return;
+	}
+
+	if (path == "/api/files/text") {
+		const QString kind = query.queryItemValue("kind");
+		const QString file = query.queryItemValue("path");
+		QString text;
+		QString error;
+		const int limit = query.queryItemValue("limit").toInt() ?: (128 * 1024);
+		if (!WebMixBridge::ReadTextTail(kind, file, limit, text, error)) {
+			SendError(socket, 404, error);
+			return;
+		}
+		SendText(socket, text);
+		return;
+	}
+
+	if (path == "/api/files/download") {
+		const QString kind = query.queryItemValue("kind");
+		const QString name = query.queryItemValue("path");
+		QString filePath;
+		QString error;
+		if (!WebMixBridge::ResolveFileForDownload(kind, name, filePath, error)) {
+			blog(LOG_WARNING, "[WebMIX] Download of '%s' (%s) refused: %s", qUtf8Printable(name),
+			     qUtf8Printable(kind), qUtf8Printable(error));
+			SendError(socket, 404, error);
+			return;
+		}
+
+		QFile file(filePath);
+		if (!file.open(QIODevice::ReadOnly)) {
+			SendError(socket, 500, "could not open the file");
+			return;
+		}
+
+		blog(LOG_INFO, "[WebMIX] Serving '%s' (%lld bytes)", qUtf8Printable(name), file.size());
+		QByteArray header;
+		header += "HTTP/1.1 200 OK\r\n";
+		header += "Content-Type: application/octet-stream\r\n";
+		header += "Content-Length: " + QByteArray::number(file.size()) + "\r\n";
+		/* RFC 5987: a plain quoted name for legacy clients plus the UTF-8
+		 * form browsers actually use. The plain name must stay ASCII. */
+		const QString downloadName = QFileInfo(filePath).fileName();
+		QString asciiName;
+		for (const QChar &character : downloadName) {
+			asciiName.append(character.unicode() < 127 && character != '"' && character != '\\'
+						 ? character
+						 : QLatin1Char('_'));
+		}
+		header += "Content-Disposition: attachment; filename=\"" + asciiName.toUtf8() +
+			  "\"; filename*=UTF-8''" + downloadName.toUtf8().toPercentEncoding() + "\r\n";
+		header += "Cache-Control: no-store\r\nConnection: close\r\n\r\n";
+		socket->write(header);
+
+		/* Stream in chunks so a large recording does not sit in memory. */
+		while (!file.atEnd()) {
+			const QByteArray chunk = file.read(256 * 1024);
+			if (chunk.isEmpty()) {
+				break;
+			}
+			if (socket->write(chunk) < 0) {
+				break;
+			}
+			socket->waitForBytesWritten(5000);
+		}
+		socket->disconnectFromHost();
+		return;
+	}
+
 	/* --- operations obs-websocket has no request for ----------------------- */
 	if (path.startsWith("/api/hotkeys") || path.startsWith("/api/scenes/") ||
 	    path.startsWith("/api/transitions/")) {
@@ -412,6 +504,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		status["propertySchema"] = true;
 		status["previewStream"] = true;
 		status["operations"] = true;
+		status["fileAccess"] = true;
 		SendJson(socket, QJsonDocument(status).toJson(QJsonDocument::Compact));
 		return;
 	}

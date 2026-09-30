@@ -63,6 +63,16 @@ bool AddTransition(const QString &id, const QString &name, QString &error);
 bool RenameTransition(const QString &name, const QString &newName, QString &error);
 bool RemoveTransition(const QString &name, QString &error);
 
+/*! List a known directory (recordings, logs, crashes, config); `relative`
+ *  selects a subdirectory and must stay inside it. */
+QJsonObject ListDirectory(const QString &kind, const QString &relative);
+
+/*! Resolve a download target inside a known directory; returns false with a reason. */
+bool ResolveFileForDownload(const QString &kind, const QString &relative, QString &path, QString &error);
+
+/*! Read the tail of a text file (used for the log viewer). */
+bool ReadTextTail(const QString &kind, const QString &relative, int maxBytes, QString &text, QString &error);
+
 /*! Serialize an obs_properties_t tree; exposed for reuse and testing. */
 QJsonObject SerializeProperties(void *properties, void *settings);
 
