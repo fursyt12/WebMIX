@@ -5,6 +5,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join, relative } from 'node:path';
 
 import { MENU_TREE, plain } from '../src/ui/menu.js';
 
@@ -88,12 +91,40 @@ test('all UI modules import cleanly without a DOM', async () => {
     '../src/ui/custom-docks.js',
     '../src/ui/dialogs.js',
     '../src/ui/files.js',
+    '../src/ui/remux.js',
     '../src/ui/multiview.js',
   ];
   for (const path of modules) {
     const mod = await import(path);
     assert.ok(Object.keys(mod).length > 0, `${path} exports something`);
   }
+});
+
+test('every api.<method>() the UI calls exists on ObsApi', async () => {
+  const { ObsApi } = await import('../src/api.js');
+  const sourceDir = fileURLToPath(new URL('../src', import.meta.url));
+  const files = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.name.endsWith('.js')) files.push(path);
+    }
+  };
+  walk(sourceDir);
+
+  // A call site that names a method ObsApi does not implement fails only at
+  // runtime, in the browser, where nothing catches it (SetRecordDirectory was
+  // missing for exactly that reason).
+  const missing = new Set();
+  for (const file of files) {
+    for (const match of readFileSync(file, 'utf8').matchAll(/\bapi\.([A-Za-z0-9_]+)\s*\(/g)) {
+      if (typeof ObsApi.prototype[match[1]] !== 'function') {
+        missing.add(`${match[1]}() in ${relative(sourceDir, file)}`);
+      }
+    }
+  }
+  assert.deepEqual([...missing], []);
 });
 
 test('stats rows cover the OBS Stats dock figures', async () => {

@@ -23,7 +23,9 @@ async function post(path) {
     const response = await fetch(path, { method: 'POST' });
     const data = await response.json().catch(() => null);
     if (!response.ok) {
-      return { ok: false, error: data?.error ?? `request failed (${response.status})` };
+      // Keep whatever else the endpoint reported (a remux conflict carries the
+      // target path, a refused start carries the queue state).
+      return { ...(data ?? {}), ok: false, error: data?.error ?? `request failed (${response.status})` };
     }
     return data ?? { ok: true };
   } catch (err) {
@@ -79,6 +81,44 @@ export async function bindHotkey(name, keyName, modifiers = []) {
 
 export async function clearHotkey(name) {
   return post(`api/hotkeys/clear?name=${encodeURIComponent(name)}`);
+}
+
+/* ------------------------------------------------------------------- remux */
+
+/**
+ * The remux queue as OBS sees it:
+ * `{ jobs: [{id, source, target, format, state, error}], processing, progress,
+ *    canClearFinished, activeCount }`, or null without the bridge.
+ */
+export async function fetchRemuxState() {
+  const data = await get('api/remux');
+  return data && Array.isArray(data.jobs) ? data : null;
+}
+
+/**
+ * Queue one recording. `relativePath` is relative to the recordings directory.
+ * Resolves `{ok: false, conflict: true, target}` when the target exists and
+ * `overwrite` is false, so the caller can ask before replacing the file.
+ */
+export async function addRemux(relativePath, format = 'mp4', overwrite = false) {
+  const query = `path=${encodeURIComponent(relativePath)}&format=${encodeURIComponent(format)}&overwrite=${overwrite ? 1 : 0}`;
+  return post(`api/remux/add?${query}`);
+}
+
+export async function startRemux() {
+  return post('api/remux/start');
+}
+
+export async function stopRemux() {
+  return post('api/remux/stop');
+}
+
+export async function clearFinishedRemux() {
+  return post('api/remux/clear');
+}
+
+export async function clearAllRemux() {
+  return post('api/remux/clearall');
 }
 
 export { notAvailable as bridgeUnavailable };

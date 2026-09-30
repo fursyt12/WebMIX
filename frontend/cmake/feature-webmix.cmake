@@ -15,6 +15,8 @@ target_sources(
     webmix/WebMixOperations.cpp
     webmix/WebMixPreview.cpp
     webmix/WebMixPreview.hpp
+    webmix/WebMixRemux.cpp
+    webmix/WebMixRemux.hpp
     webmix/WebMixServer.cpp
     webmix/WebMixServer.hpp
 )

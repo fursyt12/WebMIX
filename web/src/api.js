@@ -617,6 +617,11 @@ export class ObsApi {
     return data.recordDirectory;
   }
 
+  /*! Point recordings at another directory (OBS refuses while the output runs). */
+  async setRecordDirectory(recordDirectory) {
+    await this.request('SetRecordDirectory', { recordDirectory });
+  }
+
   /* ---------------------------------------------------------------- hotkeys */
 
   async triggerHotkeyByName(hotkeyName) {

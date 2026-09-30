@@ -49,6 +49,7 @@
 #endif
 
 #include <QSessionManager>
+#include <QTimer>
 #ifndef _WIN32
 #include <QSocketNotifier>
 #endif
@@ -1481,14 +1482,20 @@ bool OBSApp::OBSInit()
 		[this](const QString &fileUrl) { emit this->logUploadFinished(OBS::LogFileType::CrashLog, fileUrl); });
 
 	/* WebMIX: start the built-in web server.  In --web mode this is the only
-	 * way to reach the application, so a failure is fatal: continuing would
-	 * leave an invisible, uncontrollable process behind. */
+	 * way to reach the application, so a failure has to end the process:
+	 * continuing would leave an invisible, uncontrollable OBS behind.
+	 *
+	 * The exit goes through the event loop rather than failing OBSInit(),
+	 * because returning false here - after the scene collection and outputs
+	 * are up - tears libobs down from the middle of its own start-up and
+	 * crashes the deferred-destroy thread.  Quitting normally exits with the
+	 * reason in the log, which is what an unattended start needs. */
 	if (web_mode && !webMixServer) {
 		webMixServer = new WebMixServer(this);
 		if (!webMixServer->Start(QString::fromStdString(opt_web_host), opt_web_port)) {
-			blog(LOG_ERROR, "[WebMIX] The web interface could not be started; aborting because "
+			blog(LOG_ERROR, "[WebMIX] The web interface could not be started; exiting because "
 					"no other interface exists in web mode.");
-			return false;
+			QTimer::singleShot(0, qApp, []() { QCoreApplication::exit(1); });
 		}
 	}
 

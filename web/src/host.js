@@ -15,42 +15,47 @@ const SHUTDOWN_PATH = 'api/shutdown';
  * @param {string} [base] absolute base URL, e.g. 'http://127.0.0.1:4456/';
  *                        defaults to the page origin (relative fetch)
  * @returns {Promise<{embedded: boolean, shutdown: boolean, previewStream: boolean,
- *                    propertySchema: boolean, version?: string, webRoot?: string}>}
+ *                    propertySchema: boolean, remux: boolean, version?: string, webRoot?: string}>}
  */
 export async function detectHost(base = '') {
   try {
     const response = await fetch(base + STATUS_PATH, { cache: 'no-store' });
-    if (!response.ok) return { embedded: false, shutdown: false, previewStream: false, propertySchema: false };
+    if (!response.ok) return { embedded: false, shutdown: false, previewStream: false, propertySchema: false, remux: false };
     const data = await response.json();
     if (!data || data.webmix !== true) {
-      return { embedded: false, shutdown: false, previewStream: false, propertySchema: false };
+      return { embedded: false, shutdown: false, previewStream: false, propertySchema: false, remux: false };
     }
     return {
       embedded: true,
       shutdown: data.shutdownEndpoint === true,
-      // The embedded server can stream preview frames (WebGPU path) and expose
-      // the property schema; without these flags the UI stays on the
-      // obs-websocket-only code paths.
+      // The embedded server can stream preview frames (WebGPU path), expose
+      // the property schema and remux recordings; without these flags the UI
+      // stays on the obs-websocket-only code paths.
       previewStream: data.previewStream === true,
       propertySchema: data.propertySchema === true,
+      remux: data.remux === true,
       version: data.version,
       webRoot: data.webRoot,
     };
   } catch {
     // Not served by OBS, or the request failed: the plain static server does
     // not implement these endpoints.
-    return { embedded: false, shutdown: false, previewStream: false, propertySchema: false };
+    return { embedded: false, shutdown: false, previewStream: false, propertySchema: false, remux: false };
   }
 }
 
 /**
  * Ask OBS to shut down. Only works when served by OBS itself.
  * @param {string} [base]
+ * @param {boolean} [force] shut down even while a remux is running
  * @returns {Promise<boolean>} whether the request was accepted
  */
-export async function requestShutdown(base = '') {
+export async function requestShutdown(base = '', force = false) {
   try {
-    const response = await fetch(base + SHUTDOWN_PATH, { method: 'POST', cache: 'no-store' });
+    const response = await fetch(base + SHUTDOWN_PATH + (force ? '?force=1' : ''), {
+      method: 'POST',
+      cache: 'no-store',
+    });
     return response.ok;
   } catch {
     return false;

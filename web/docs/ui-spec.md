@@ -1108,6 +1108,80 @@ One grid row is appended per audio source at runtime, matching the nine header c
 source icon, name, status/active indicator, volume slider + percentage, mono checkbox,
 balance slider, sync-offset spin box (ms), monitoring combo, and track checkboxes.
 
+### 6.6 Remux Recordings dialog — `OBSRemux.ui`
+
+Window: `OBSRemux [QDialog]`, title `RemuxRecordings` → "Remux Recordings",
+`sizeGripEnabled=true`, 850×400, accepts drops.
+
+```
+OBSRemux [QDialog]
+└─ gridLayout [QGridLayout]
+   ├─ label [QLabel] text=Remux.HelpText → "Drop files in this window to remux, or select an empty \"OBS Recording\" cell to browse for a file."   @r0 c0
+   ├─ tableView [QTableView] selectionMode=NoSelection, horizontalHeader stretch,        @r1 c0
+   │              column State fixed at 23px, textElideMode=ElideMiddle, wrap=false
+   ├─ progressBar [QProgressBar] range 0–1000, hidden until a run starts                 @r2 c0
+   └─ horizontalLayout_4 [QHBoxLayout] spacing=6                                         @r3 c0
+      └─ buttonBox [QDialogButtonBox] standardButtons=Close|Ok|Reset|RestoreDefaults
+```
+
+The four dialog buttons are re-labelled to `Remux.Remux` → "Remux" (Ok; becomes
+`Remux.Stop` → "Stop Remuxing" while a run is active), `Remux.ClearFinished` →
+"Clear Finished Items" (Reset), `Remux.ClearAll` → "Clear All Items"
+(RestoreDefaults) and "Close". Ok and RestoreDefaults start disabled, and all
+three action buttons track the queue (`RemuxQueueModel::rowCount > 1`,
+`canClearFinished`).
+
+`RemuxQueueModel` has three columns — `State` (icon only, no header),
+`InputPath` (`Remux.SourceFile` → "OBS Recording"), `OutputPath`
+(`Remux.TargetFile` → "Target File") — plus one trailing empty **insertion row**.
+Selecting the empty row's `InputPath` cell opens a file dialog filtered to
+`(*.mp4 *.flv *.mov *.mkv *.ts *.m3u8)`; the `OutputPath` cell is editable. State
+icons: `Complete` = apply, `InProgress` = right arrow, `Error` = cancel,
+`InvalidPath` = warning, `Ready`/`Pending` = none.
+
+Behaviour, as implemented by `OBSRemux` / `RemuxQueueModel` / `RemuxWorker`:
+
+1. Dropping files (or a folder, which is scanned recursively with the filter
+   above) appends them; an empty drop reports `Remux.NoFilesAdded`.
+2. `checkInputPath()` derives the target as `<dir>/<completeBaseName>.mp4`, or
+   `<dir>/<completeBaseName>.remuxed.<suffix>` when the source suffix contains
+   `mov`/`mp4`; a missing source becomes `InvalidPath`.
+3. "Remux" turns every `Ready` entry into `Pending` and, if any target already
+   exists, asks `Remux.FileExists` ("…Do you want to replace them?") listing the
+   files first.
+4. One worker thread drains the queue through libobs'
+   `media_remux_job_create/process/destroy`, reporting progress to the single
+   progress bar; each entry ends `Complete` or `Error`. Stopping
+   (`Remux.ExitUnfinishedTitle`/`Remux.ExitUnfinished`, also asked on close and
+   reject) makes the current entry an `Error` and returns the untouched entries
+   to `Ready`. The queue is drained sequentially — never in parallel.
+5. When the queue empties, `Remux.FinishedTitle` → "Remuxing finished" is shown
+   with `Remux.Finished` → "Recording remuxed", or `Remux.FinishedError` →
+   "Recording remuxed, but the file may be incomplete" when any entry failed.
+
+**Web port** (`src/ui/remux.js`, `WebMixRemux.cpp`, `/api/remux`): the same
+three columns, insertion row, four buttons, 0–1000 progress bar, state icons,
+`Ready`/`Pending`/`InProgress`/`Complete`/`InvalidPath`/`Error` states and
+finished messages, with the queue and its worker living inside OBS so large files
+never cross the network. Deliberate differences, all forced by the browser not
+being able to reach the OBS machine's file system:
+
+* The recordings directory (and its subdirectories) is the only browsable place;
+  the insertion row opens that listing instead of a native file dialog, and every
+  path is validated server-side like the other file endpoints.
+* The target name is derived from a **Target format** selector (MP4/MOV/MKV)
+  next to the help text, using the same rule as `checkInputPath()` (`mp4` on an
+  `mov`/`mp4` source still yields `.remuxed.<suffix>`), instead of an editable
+  path cell.
+* Dropping files from the browser only carries their *names*, so each dropped
+  name is queued from the recordings directory; a name that is not there is
+  reported in the status bar.
+* An existing target is reported when the entry is added (409 + the replace
+  question) rather than when the run starts, because the server derives the
+  target.
+* `File > Exit` asks `Remux.ExitUnfinished` while a run is active; the shutdown
+  endpoint refuses with 409 until that is confirmed and retried with `force=1`.
+
 ---
 
 ## 7. Translation-string appendix
@@ -1362,6 +1436,25 @@ resolve through the same lookup are marked *(literal)*.
 | `Basic.AdvAudio.SyncOffset` | `Sync Offset` |
 | `Basic.AdvAudio.Monitoring` | `Audio Monitoring` |
 | `Basic.AdvAudio.AudioTracks` | `Tracks` |
+| `RemuxRecordings` | `Remux Recordings` |
+| `Remux.SourceFile` | `OBS Recording` |
+| `Remux.TargetFile` | `Target File` |
+| `Remux.Remux` | `Remux` |
+| `Remux.Stop` | `Stop Remuxing` |
+| `Remux.ClearFinished` | `Clear Finished Items` |
+| `Remux.ClearAll` | `Clear All Items` |
+| `Remux.FinishedTitle` | `Remuxing finished` |
+| `Remux.Finished` | `Recording remuxed` |
+| `Remux.FinishedError` | `Recording remuxed, but the file may be incomplete` |
+| `Remux.SelectRecording` | `Select OBS Recording...` |
+| `Remux.SelectTarget` | `Select target file...` |
+| `Remux.FileExistsTitle` | `Target files exist` |
+| `Remux.FileExists` | `The following target files already exist. Do you want to replace them?` |
+| `Remux.ExitUnfinishedTitle` | `Remuxing in progress` |
+| `Remux.ExitUnfinished` | `Remuxing is not finished, stopping now may render the target file unusable.\nAre you sure you want to stop remuxing?` |
+| `Remux.HelpText` | `Drop files in this window to remux, or select an empty "OBS Recording" cell to browse for a file.` |
+| `Remux.NoFilesAddedTitle` | `No remuxing file added` |
+| `Remux.NoFilesAdded` | `No file is added to remux. Drop a folder containing one or more video files.` |
 
 ### 7.6 Source toolbars / media / mixer
 

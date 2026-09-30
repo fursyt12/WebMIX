@@ -55,7 +55,7 @@ WebHost=127.0.0.1
 | --- | --- |
 | `GET /api/status` | Identifies the host (`webmix: true`), version, web root, whether shutdown is available. |
 | `GET /obs-config.json` | obs-websocket port/password/enabled, read from OBS's config. |
-| `POST /api/shutdown` | Shuts OBS down. This is what **File > Exit** calls, so OBS can be stopped from the browser. |
+| `POST /api/shutdown` | Shuts OBS down. This is what **File > Exit** calls, so OBS can be stopped from the browser. Refused with 409 while a remux is running unless `force=1` is passed. |
 | `GET /api/preview.mjpg` | Live preview: JPEG frames as `multipart/x-mixed-replace` (`source`, `width`, `height`, `fps`, `quality`). |
 | `GET /api/preview.jpg` | A single preview frame. |
 | `GET /api/preview/multiview.mjpg\|.jpg` | Every scene composed into one grid (like OBS's Multiview), optionally pinned with `scenes=a,b,c`. |
@@ -69,6 +69,8 @@ WebHost=127.0.0.1
 | `GET /api/files/list` | Lists a directory OBS uses (`kind=recordings\|logs\|crashes\|config\|profile`, optional `path=` for a subdirectory). |
 | `GET /api/files/download` | Streams a file from one of those directories as an attachment. |
 | `GET /api/files/text` | Reads the tail of a text file, for the inline log viewer. |
+| `GET /api/remux` | The remux queue: entries (source, target, state), the progress of the running one, and whether anything can be cleared. |
+| `POST /api/remux/add\|start\|stop\|clear\|clearall` | Queue a recording (relative to the recordings directory, `format=mp4\|mov\|mkv`), run the queue through libobs' remuxer, stop it, or drop entries. Adding over an existing target is refused with 409 unless `overwrite=1`. |
 | everything else | Static files from this directory; unknown paths fall back to `index.html`. |
 
 Requests containing `..` (including percent-encoded) are rejected with 403, and
@@ -133,9 +135,9 @@ obs --web --web-port 4460
 ## Tests
 
 ```bash
-npm test              # 81 unit/integration tests (protocol client, store, fader, MJPEG parser, UI structure)
-npm run test:browser  # headless-Chromium end-to-end check of the mock-backed UI (52 assertions)
-npm run test:live     # against a real `obs --web` instance (51 assertions, incl. GPU pixels)
+npm test              # 90 unit/integration tests (protocol client, store, fader, MJPEG parser, UI structure)
+npm run test:browser  # headless-Chromium end-to-end check of the mock-backed UI (66 assertions)
+npm run test:live     # against a real `obs --web` instance (60 assertions, incl. GPU pixels and a remux)
 ```
 
 `npm run test:browser` boots the mock obs-websocket server, loads the real UI in
@@ -312,7 +314,7 @@ silently.
 | Scene collections / profiles | List/switch/create/remove work, but duplicate/rename/import/export do not. |
 | Undo/redo, source group/ungroup, copy/paste duplicate | Not exposed. |
 | "Hide in Mixer", mixer pin/lock | Not exposed. |
-| Recordings / logs / config folders | Solved via `/api/files/*` (list, download, view). Remux Recordings, uploading a log to obsproject.com, the Plugin Manager and the Auto-Configuration Wizard are still desktop-only. |
+| Recordings / logs / config folders | Solved via `/api/files/*` (list, download, view). File > Remux Recordings is solved too: the queue and its worker run inside OBS (`/api/remux`), so a recording can be converted to MP4 from the browser. Uploading a log to obsproject.com, the Plugin Manager and the Auto-Configuration Wizard are still desktop-only. |
 | Always On Top, OS folders, tray | Apply to the desktop window, not the browser. |
 | Exit OBS | obs-websocket has no shutdown request, but the embedded server adds `POST /api/shutdown`, so File > Exit works when OBS serves the UI (`--web`). With an external server there is still no way. |
 

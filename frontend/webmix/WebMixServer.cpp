@@ -19,6 +19,7 @@
 
 #include "WebMixBridge.hpp"
 #include "WebMixPreview.hpp"
+#include "WebMixRemux.hpp"
 
 #include "OBSApp.hpp"
 
@@ -193,6 +194,9 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 
 void WebMixServer::Stop()
 {
+	/* A remux runs on its own thread and must not outlive libobs. */
+	WebMixRemux::Shutdown();
+
 	if (!server) {
 		return;
 	}
@@ -426,6 +430,78 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		return;
 	}
 
+	/* --- remuxing (the WebMIX bridge) -------------------------------------- */
+	if (path.startsWith("/api/remux")) {
+		if (path == "/api/remux" && method == "GET") {
+			SendJson(socket, QJsonDocument(WebMixRemux::State()).toJson(QJsonDocument::Compact));
+			return;
+		}
+
+		if (method != "POST") {
+			SendError(socket, 405, "Method not allowed");
+			return;
+		}
+
+		QJsonObject result = WebMixRemux::State();
+		QString error;
+		bool ok = true;
+		int status = 200;
+
+		if (path == "/api/remux/add") {
+			QString format = query.queryItemValue("format");
+			if (format.isEmpty()) {
+				format = QStringLiteral("mp4");
+			}
+
+			QString id;
+			QString source;
+			QString target;
+			bool conflict = false;
+			ok = WebMixRemux::Add(query.queryItemValue("path"), format,
+					      query.queryItemValue("overwrite") == QLatin1String("1"), id, source,
+					      target, conflict, error);
+			if (ok) {
+				result["id"] = id;
+				result["source"] = source;
+				result["target"] = target;
+			} else if (conflict) {
+				/* The UI asks before replacing, like Remux.FileExists does. */
+				result["source"] = source;
+				result["target"] = target;
+				result["conflict"] = true;
+				status = 409;
+			} else {
+				status = 400;
+			}
+		} else if (path == "/api/remux/start") {
+			ok = WebMixRemux::Start(error);
+			if (!ok) {
+				status = 400;
+			}
+			result = WebMixRemux::State();
+		} else if (path == "/api/remux/stop") {
+			WebMixRemux::Stop();
+			result = WebMixRemux::State();
+		} else if (path == "/api/remux/clear") {
+			WebMixRemux::ClearFinished();
+			result = WebMixRemux::State();
+		} else if (path == "/api/remux/clearall") {
+			WebMixRemux::ClearAll();
+			result = WebMixRemux::State();
+		} else {
+			SendError(socket, 404, "Unknown remux endpoint");
+			return;
+		}
+
+		result["ok"] = ok;
+		if (!ok) {
+			result["error"] = error;
+			blog(LOG_WARNING, "[WebMIX] %s failed: %s", qUtf8Printable(path), qUtf8Printable(error));
+		}
+		SendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact), status);
+		return;
+	}
+
 	/* --- operations obs-websocket has no request for ----------------------- */
 	if (path.startsWith("/api/hotkeys") || path.startsWith("/api/scenes/") ||
 	    path.startsWith("/api/transitions/")) {
@@ -514,6 +590,18 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 
 	/* --- control endpoints ------------------------------------------------- */
 	if (method == "POST" && path == "/api/shutdown") {
+		/* Stopping mid-remux leaves a partial file, so the UI has to ask
+		 * first and then say so explicitly. */
+		const int activeRemux = WebMixRemux::ActiveCount();
+		if (activeRemux > 0 && query.queryItemValue("force") != QLatin1String("1")) {
+			QJsonObject result;
+			result["ok"] = false;
+			result["activeRemux"] = activeRemux;
+			result["error"] = "a remux is in progress";
+			SendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact), 409);
+			return;
+		}
+
 		blog(LOG_WARNING, "[WebMIX] Shutdown requested from the web interface");
 		SendJson(socket, R"({"ok":true,"message":"OBS is shutting down"})");
 		QTimer::singleShot(150, qApp, []() { QCoreApplication::quit(); });
@@ -532,6 +620,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		status["multiview"] = true;
 		status["operations"] = true;
 		status["fileAccess"] = true;
+		status["remux"] = true;
 		SendJson(socket, QJsonDocument(status).toJson(QJsonDocument::Compact));
 		return;
 	}

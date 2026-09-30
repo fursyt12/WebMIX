@@ -35,6 +35,7 @@ test('detectHost recognises the embedded OBS server', async (t) => {
           shutdownEndpoint: true,
           previewStream: true,
           propertySchema: true,
+          remux: true,
           version: '33.0.0',
           webRoot: '/opt/obs/web',
         })
@@ -57,6 +58,7 @@ test('detectHost recognises the embedded OBS server', async (t) => {
   assert.equal(info.webRoot, '/opt/obs/web');
   assert.equal(info.previewStream, true);
   assert.equal(info.propertySchema, true);
+  assert.equal(info.remux, true);
 
   assert.equal(await requestShutdown(host.base), true);
   assert.equal(shutdownCalls, 1);
@@ -101,8 +103,28 @@ test('detectHost and requestShutdown fail safe when nothing is listening', async
     shutdown: false,
     previewStream: false,
     propertySchema: false,
+    remux: false,
   });
   assert.equal(await requestShutdown(base), false);
+});
+
+test('requestShutdown can force past a running remux', async (t) => {
+  const urls = [];
+  const host = await startHost((req, res) => {
+    urls.push(req.url);
+    if (req.url.startsWith('/api/shutdown')) {
+      res.end(JSON.stringify({ ok: true }));
+      return true;
+    }
+    return false;
+  });
+  t.after(() => host.close());
+
+  // Without the flag the server refuses while a remux runs; the UI then asks
+  // the user and retries with force=1.
+  assert.equal(await requestShutdown(host.base), true);
+  assert.equal(await requestShutdown(host.base, true), true);
+  assert.deepEqual(urls, ['/api/shutdown', '/api/shutdown?force=1']);
 });
 
 test('requestShutdown reports failure when the host rejects it', async (t) => {

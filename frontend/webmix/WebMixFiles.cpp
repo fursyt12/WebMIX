@@ -66,9 +66,10 @@ QVector<KnownDirectory> KnownDirectories()
 {
 	QVector<KnownDirectory> directories;
 
-	/* Recordings: whatever the current profile is configured to use. */
-	const char *recordPath = obs_frontend_get_current_record_output_path();
-	directories.append({"recordings", recordPath ? QString::fromUtf8(recordPath) : QString(),
+	/* Recordings: whatever the current profile is configured to use. The API
+	 * hands out a copy that the caller owns, so it has to be freed here. */
+	BPtr<char> recordPath = obs_frontend_get_current_record_output_path();
+	directories.append({"recordings", recordPath ? QString::fromUtf8(recordPath.Get()) : QString(),
 			    QStringLiteral("Recordings"), true});
 
 	directories.append({"logs", ConfigSubdirectory("obs-studio/logs"), QStringLiteral("Log Files"), true});

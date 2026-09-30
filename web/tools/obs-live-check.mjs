@@ -14,7 +14,7 @@
  * Usage: node tools/obs-live-check.mjs [--url http://127.0.0.1:4460/] [--shutdown]
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { writeFileSync, rmSync, existsSync } from 'node:fs';
+import { writeFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -477,6 +477,222 @@ try {
     expression: `document.querySelectorAll('.obs-modal-backdrop .obs-dialog-close').forEach((b) => b.click())`,
   });
   await delay(200);
+
+  // File > Remux Recordings, end to end: record a few seconds into a scratch
+  // directory, remux the MKV through the bridge and check the resulting MP4
+  // with ffprobe. This is the whole point of the feature for a headless box.
+  const scratch = join(tmpdir(), 'webmix-live-remux');
+  rmSync(scratch, { recursive: true, force: true });
+  mkdirSync(scratch, { recursive: true });
+
+  const { result: recordResult } = await cdp.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const out = { originalDir: await window.webmix.api.getRecordDirectory().catch(() => '') };
+      out.originalFormat = await window.webmix.api.getProfileParameter('SimpleOutput', 'RecFormat2');
+      out.originalAutoRemux = await window.webmix.api
+        .getProfileParameter('Video', 'AutoRemux')
+        .catch(() => 'false');
+      try {
+        // A profile with auto-remux on would already have produced the MP4 this
+        // check wants to create itself.
+        await window.webmix.api.setProfileParameter('Video', 'AutoRemux', 'false');
+        // MKV is the case people remux: a crash cannot corrupt it, but players
+        // and editors cannot always open it.
+        await window.webmix.api.setProfileParameter('SimpleOutput', 'RecFormat2', 'mkv');
+        await window.webmix.api.setRecordDirectory(${JSON.stringify(scratch)});
+        await window.webmix.api.startRecord();
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        out.path = await window.webmix.api.stopRecord();
+      } catch (err) {
+        out.error = String(err?.message ?? err);
+      } finally {
+        // The recording directory stays on the scratch folder until the remux
+        // checks are done, so the browser dialog can find the file.
+        await window.webmix.api
+          .setProfileParameter('SimpleOutput', 'RecFormat2', out.originalFormat || 'mkv')
+          .catch(() => {});
+        await window.webmix.api
+          .setProfileParameter('Video', 'AutoRemux', out.originalAutoRemux || 'false')
+          .catch(() => {});
+      }
+      return JSON.stringify(out);
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  let recorded = {};
+  try {
+    recorded = JSON.parse(recordResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  recorded for remux: ${JSON.stringify(recorded)}`);
+  check(
+    'a real recording is produced for the remux check',
+    typeof recorded.path === 'string' && recorded.path.endsWith('.mkv') && existsSync(recorded.path)
+  );
+
+  const remuxReady = typeof recorded.path === 'string' && existsSync(recorded.path);
+  if (!remuxReady) {
+    // Put the recording directory back so the profile is left untouched.
+    await cdp.send('Runtime.evaluate', {
+      expression: `window.webmix.api.setRecordDirectory(${JSON.stringify(recorded.originalDir || '')}).catch(() => {})`,
+      awaitPromise: true,
+    });
+    rmSync(scratch, { recursive: true, force: true });
+  } else {
+    // A queue left over from an earlier run would be mistaken for this one.
+    await cdp.send('Runtime.evaluate', {
+      expression: `(async () => { await fetch('api/remux/clearall', { method: 'POST' }); return true; })()`,
+      awaitPromise: true,
+    });
+    const { result: pickResult } = await cdp.send('Runtime.evaluate', {
+      expression: `(async () => {
+        await window.webmix.ui.dispatch('remuxRecordings');
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        document.querySelector('.obs-remux-insert')?.click();
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        return JSON.stringify({
+          title: [...document.querySelectorAll('.obs-dialog-title')].map((t) => t.textContent.trim()),
+          items: [...document.querySelectorAll('.obs-remux-picker button')].map((b) => b.textContent.trim()),
+        });
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    let pick = {};
+    try {
+      pick = JSON.parse(pickResult.value ?? '{}');
+    } catch { /* ignore */ }
+    const picked = (pick.items ?? []).find((item) => item.endsWith('.mkv'));
+    check('Remux dialog opens and browses the recordings', (pick.title ?? []).some((t) => t.startsWith('Remux Recordings')) && !!picked);
+
+    const { result: queuedRemuxResult } = await cdp.send('Runtime.evaluate', {
+      expression: `(async () => {
+        [...document.querySelectorAll('.obs-remux-picker button')]
+          .find((b) => b.textContent.trim() === ${JSON.stringify(picked ?? '')})?.click();
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        const dialog = [...document.querySelectorAll('.obs-dialog')]
+          .find((d) => d.querySelector('.obs-dialog-title')?.textContent?.trim().startsWith('Remux Recordings'));
+        const cells = [...(dialog?.querySelectorAll('tbody tr') ?? [])]
+          .map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent.trim()));
+        return JSON.stringify({ row: cells[0] ?? null });
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    let queuedRemux = {};
+    try {
+      queuedRemux = JSON.parse(queuedRemuxResult.value ?? '{}');
+    } catch { /* ignore */ }
+    check(
+      'the recording is queued with an MP4 target',
+      (queuedRemux.row?.[1] ?? '').endsWith('.mkv') && (queuedRemux.row?.[2] ?? '').endsWith('.mp4')
+    );
+
+    // Start it from the dialog, then wait for the bridge to drain the queue.
+    await cdp.send('Runtime.evaluate', {
+      expression: `[...document.querySelectorAll('.obs-dialog')]
+        .find((d) => d.querySelector('.obs-dialog-title')?.textContent?.trim().startsWith('Remux Recordings'))
+        ?.querySelector('.obs-dialog-footer button')?.click()`,
+    });
+    const { result: remuxRunResult } = await cdp.send('Runtime.evaluate', {
+      expression: `(async () => {
+        // Wait for THIS recording, not for a job left over from an earlier run.
+        const wanted = ${JSON.stringify(recorded.path)};
+        const deadline = Date.now() + 15000;
+        while (Date.now() < deadline) {
+          const state = await (await fetch('api/remux', { cache: 'no-store' })).json();
+          const job = (state.jobs ?? []).find((j) => j.source === wanted);
+          if (job && !state.processing && (job.state === 'complete' || job.state === 'error')) {
+            return JSON.stringify({ ...state, jobs: [job] });
+          }
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        return JSON.stringify({ timeout: true });
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    let remuxRun = {};
+    try {
+      remuxRun = JSON.parse(remuxRunResult.value ?? '{}');
+    } catch { /* ignore */ }
+    const finishedJob = (remuxRun.jobs ?? []).find((job) => job.state === 'complete' || job.state === 'error');
+    console.log(`  remux run: ${JSON.stringify({ state: finishedJob?.state, target: finishedJob?.target })}`);
+    check('OBS remuxed the recording', finishedJob?.state === 'complete' && (finishedJob?.target ?? '').endsWith('.mp4'));
+
+    // ffprobe both files: the remux must keep every stream.
+    const streamKinds = (file) => {
+      const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'json', file], {
+        encoding: 'utf8',
+      });
+      try {
+        return (JSON.parse(probe.stdout).streams ?? []).map((s) => s.codec_type).sort();
+      } catch {
+        return null;
+      }
+    };
+    const sourceStreams = streamKinds(recorded.path);
+    const targetStreams = finishedJob?.target ? streamKinds(finishedJob.target) : null;
+    const targetFormat = finishedJob?.target
+      ? spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=format_name', '-of', 'json', finishedJob.target], {
+          encoding: 'utf8',
+        }).stdout
+      : '';
+    console.log(`  streams: source=${JSON.stringify(sourceStreams)} target=${JSON.stringify(targetStreams)}`);
+    check(
+      'the remuxed file keeps every stream',
+      !!targetStreams && targetStreams.length > 0 && JSON.stringify(targetStreams) === JSON.stringify(sourceStreams)
+    );
+    check('the remuxed file is a real MP4', /"format_name"\s*:\s*"[^"]*\bmp4\b/.test(targetFormat ?? ''));
+
+    // The file must be retrievable from the browser, like any other recording.
+    const targetName = (finishedJob?.target ?? '').split('/').pop();
+    const download = await fetch(`${BASE}api/files/download?kind=recordings&path=${encodeURIComponent(targetName)}`);
+    const downloadBytes = (await download.arrayBuffer()).byteLength;
+    check(
+      'the remuxed recording downloads from the browser',
+      download.status === 200 && downloadBytes > 0 && downloadBytes === Number(download.headers.get('content-length'))
+    );
+
+    // The dialog reflects the outcome and the files are left on disk.
+    const { result: remuxUiResult } = await cdp.send('Runtime.evaluate', {
+      expression: `JSON.stringify({
+        complete: !!document.querySelector('.obs-remux-state.is-complete'),
+        finished: [...document.querySelectorAll('.obs-dialog-title')].some((t) => t.textContent.includes('Remuxing finished')),
+        progressHidden: document.querySelector('.obs-progress')?.hidden ?? null,
+      })`,
+      returnByValue: true,
+    });
+    let remuxUi = {};
+    try {
+      remuxUi = JSON.parse(remuxUiResult.value ?? '{}');
+    } catch { /* ignore */ }
+    check('the dialog shows the finished remux', remuxUi.complete === true && remuxUi.finished === true);
+    check('the progress bar is hidden again', remuxUi.progressHidden === true);
+
+    writeFileSync(
+      SCREENSHOT.replace(/\.png$/, '-remux.png'),
+      Buffer.from((await cdp.send('Page.captureScreenshot', { format: 'png' })).data, 'base64')
+    );
+    await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const alertDialog = [...document.querySelectorAll('.obs-dialog')]
+          .find((d) => d.querySelector('.obs-dialog-title')?.textContent?.includes('Remuxing finished'));
+        alertDialog?.querySelector('.obs-dialog-footer button')?.click();
+        const remuxDialog = [...document.querySelectorAll('.obs-dialog')]
+          .find((d) => d.querySelector('.obs-dialog-title')?.textContent?.trim().startsWith('Remux Recordings'));
+        remuxDialog?.querySelector('.obs-dialog-close')?.click();
+      })()`,
+    });
+    await delay(300);
+
+    // Put the recording directory back and drop the scratch recording.
+    await cdp.send('Runtime.evaluate', {
+      expression: `window.webmix.api.setRecordDirectory(${JSON.stringify(recorded.originalDir || '')}).catch(() => {})`,
+      awaitPromise: true,
+    });
+    rmSync(scratch, { recursive: true, force: true });
+  }
 
   // Multiview: OBS composes the grid server-side. Verify from the browser that
   // the tiles land where the scene order says they should.

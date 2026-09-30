@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { startMockObs } from '../test/helpers/mock-obs.mjs';
+import { startMockBridge } from '../test/helpers/mock-bridge.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const args = process.argv.slice(2);
@@ -129,12 +130,19 @@ const check = (label, condition) => {
 };
 
 const mock = await startMockObs();
+// The embedded bridge (property schema, files, remux) only exists in --web mode;
+// the mock stands in for it so the dialogs that need it can be driven too.
+const bridge = await startMockBridge();
 // A fresh profile keeps localStorage (layout, docks, hotkeys) deterministic.
 rmSync(PROFILE_DIR, { recursive: true, force: true });
-const appServer = spawn(process.execPath, ['server.mjs', '--port', String(APP_PORT)], {
-  cwd: ROOT,
-  stdio: 'ignore',
-});
+const appServer = spawn(
+  process.execPath,
+  ['server.mjs', '--port', String(APP_PORT), '--bridge', bridge.url],
+  {
+    cwd: ROOT,
+    stdio: 'ignore',
+  }
+);
 const browser = spawn(
   chromium,
   [
@@ -158,6 +166,7 @@ const cleanup = () => {
   try { browser.kill('SIGKILL'); } catch { /* ignore */ }
   try { appServer.kill('SIGTERM'); } catch { /* ignore */ }
   mock.close();
+  bridge.close();
 };
 
 let exitCode = 1;
@@ -373,6 +382,127 @@ try {
 
   const customShot = await cdp.send('Page.captureScreenshot', { format: 'png' });
   writeFileSync(SCREENSHOT.replace(/\.png$/, '-custom-dock.png'), Buffer.from(customShot.data, 'base64'));
+
+  // File > Remux Recordings: the queue, the recordings browser and a full remux
+  // run, driven against the mock bridge.
+  await cdp.send('Runtime.evaluate', {
+    expression: `window.webmix.ui.dispatch('remuxRecordings')`,
+    awaitPromise: true,
+  });
+  await delay(700);
+  const { result: remuxResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify((() => {
+      const dialog = [...document.querySelectorAll('.obs-dialog')].at(-1);
+      return {
+        title: dialog?.querySelector('.obs-dialog-title')?.textContent?.trim() ?? '',
+        headers: [...(dialog?.querySelectorAll('thead th') ?? [])].map((th) => th.textContent.trim()),
+        buttons: [...(dialog?.querySelectorAll('.obs-dialog-footer button') ?? [])].map((b) => b.textContent.trim()),
+        insertRow: !!dialog?.querySelector('.obs-remux-insert'),
+        rows: dialog?.querySelectorAll('tbody tr').length ?? 0,
+      };
+    })())`,
+    returnByValue: true,
+  });
+  let remux = {};
+  try {
+    remux = JSON.parse(remuxResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  remux dialog: ${JSON.stringify({ title: remux.title, buttons: remux.buttons, rows: remux.rows })}`);
+  check('Remux dialog opens', (remux.title ?? '').startsWith('Remux Recordings'));
+  check(
+    'Remux dialog shows the OBS and target columns',
+    remux.headers?.includes('OBS Recording') && remux.headers?.includes('Target File')
+  );
+  check(
+    'Remux dialog offers the desktop buttons',
+    ['Remux', 'Clear Finished Items', 'Clear All Items', 'Close'].every((label) => remux.buttons?.includes(label))
+  );
+  check('Remux list starts empty with an insertion row', remux.rows === 1 && remux.insertRow === true);
+
+  await cdp.send('Runtime.evaluate', { expression: `document.querySelector('.obs-remux-insert')?.click()` });
+  await delay(700);
+  const { result: pickerResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify({
+      title: [...document.querySelectorAll('.obs-dialog')].at(-1)?.querySelector('.obs-dialog-title')?.textContent?.trim() ?? '',
+      items: [...document.querySelectorAll('.obs-remux-picker button')].map((b) => b.textContent.trim()),
+      path: document.querySelector('.obs-remux-picker')?.previousElementSibling?.textContent ?? '',
+    })`,
+    returnByValue: true,
+  });
+  let picker = {};
+  try {
+    picker = JSON.parse(pickerResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  remux picker: ${JSON.stringify({ title: picker.title, items: picker.items })}`);
+  check('Remux insertion row opens the recordings browser', (picker.title ?? '').startsWith('Select OBS Recording'));
+  check('recordings browser lists the recordings', (picker.items ?? []).some((item) => item.includes('Recording 2024-01-01 12-00-00.mkv')));
+  check('recordings browser hides non-video files', !(picker.items ?? []).some((item) => item.includes('notes.txt')));
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `[...document.querySelectorAll('.obs-remux-picker button')]
+      .find((b) => b.textContent.includes('Recording 2024-01-01 12-00-00.mkv'))?.click()`,
+  });
+  await delay(800);
+  const { result: queuedResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify((() => {
+      const dialog = [...document.querySelectorAll('.obs-dialog')].find((d) => d.querySelector('.obs-dialog-title')?.textContent?.trim().startsWith('Remux Recordings'));
+      const rows = [...(dialog?.querySelectorAll('tbody tr') ?? [])].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent.trim()));
+      return {
+        pickerGone: !document.querySelector('.obs-remux-picker'),
+        row: rows[0] ?? null,
+        remuxDisabled: dialog?.querySelector('.obs-dialog-footer button')?.disabled ?? null,
+      };
+    })())`,
+    returnByValue: true,
+  });
+  let queued = {};
+  try {
+    queued = JSON.parse(queuedResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  remux queued: ${JSON.stringify(queued)}`);
+  check('Choosing a recording closes the browser', queued.pickerGone === true);
+  check('queued entry shows the recording and its target', queued.row?.[1] === 'Recording 2024-01-01 12-00-00.mkv' && queued.row?.[2] === 'Recording 2024-01-01 12-00-00.mp4');
+  check('Remux is enabled once something is queued', queued.remuxDisabled === false);
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `[...document.querySelectorAll('.obs-dialog')]
+      .find((d) => d.querySelector('.obs-dialog-title')?.textContent?.trim().startsWith('Remux Recordings'))
+      ?.querySelector('.obs-dialog-footer button')?.click()`,
+  });
+  await delay(2400);
+  const { result: doneResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify({
+      finished: [...document.querySelectorAll('.obs-dialog-title')].some((t) => t.textContent.trim().startsWith('Remuxing finished')),
+      message: document.querySelector('.obs-message-text')?.textContent ?? '',
+      complete: !!document.querySelector('.obs-remux-state.is-complete'),
+      progressHidden: document.querySelector('.obs-progress')?.hidden ?? null,
+      clearFinishedEnabled: [...document.querySelectorAll('.obs-dialog-footer button')]
+        .find((b) => b.textContent.trim() === 'Clear Finished Items')?.disabled === false,
+    })`,
+    returnByValue: true,
+  });
+  let done = {};
+  try {
+    done = JSON.parse(doneResult.value ?? '{}');
+  } catch { /* ignore */ }
+  console.log(`  remux finished: ${JSON.stringify(done)}`);
+  check('finished remux is reported', done.finished === true && done.message === 'Recording remuxed');
+  check('completed entry shows the success state', done.complete === true);
+  check('progress bar hides when the queue drains', done.progressHidden === true);
+  check('Clear Finished Items becomes available', done.clearFinishedEnabled === true);
+
+  // Dismiss the finished box and the dialog, so later steps see a clean page.
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const alertDialog = [...document.querySelectorAll('.obs-dialog')]
+        .find((d) => d.querySelector('.obs-dialog-title')?.textContent?.trim().startsWith('Remuxing finished'));
+      alertDialog?.querySelector('.obs-dialog-footer button')?.click();
+      const remuxDialog = [...document.querySelectorAll('.obs-dialog')]
+        .find((d) => d.querySelector('.obs-dialog-title')?.textContent?.trim().startsWith('Remux Recordings'));
+      remuxDialog?.querySelector('.obs-dialog-close')?.click();
+    })()`,
+  });
+  await delay(300);
 
   check('no uncaught page exceptions', pageErrors.length === 0);
   check('no console errors', consoleErrors.length === 0);

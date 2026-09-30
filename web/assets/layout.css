@@ -1312,6 +1312,91 @@ body.obs-app {
   overflow: auto;
 }
 
+/* -------------------------------------------------------- remux dialog */
+
+.obs-remux-dialog .obs-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-large);
+}
+
+.obs-remux-help-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--obs-padding-wide);
+}
+
+.obs-remux-help {
+  flex: 1 1 auto;
+}
+
+.obs-remux-format {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--obs-padding-small);
+  white-space: nowrap;
+}
+
+.obs-remux-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.obs-remux-table th.obs-remux-state,
+.obs-remux-table td.obs-remux-state {
+  width: 24px;
+  text-align: center;
+}
+
+.obs-remux-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obs-remux-insert {
+  cursor: pointer;
+}
+
+.obs-remux-state.is-complete {
+  color: var(--obs-success);
+}
+
+.obs-remux-state.is-progress {
+  color: var(--obs-primary-lighter);
+}
+
+.obs-remux-state.is-error {
+  color: var(--obs-error-bright);
+}
+
+.obs-remux-state.is-warning {
+  color: var(--obs-warning-bright);
+}
+
+.obs-progress {
+  height: 20px;
+  border-radius: var(--obs-radius);
+  background: var(--obs-input-bg);
+  overflow: hidden;
+}
+
+.obs-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--obs-primary);
+  transition: width 120ms linear;
+}
+
+.obs-remux-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 0;
+}
+
 /* ------------------------------------------------------------ multiview */
 
 .obs-multiview {

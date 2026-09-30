@@ -23,7 +23,9 @@ import { StatsPanel } from './ui/stats.js';
 import { CustomDocksPanel } from './ui/custom-docks.js';
 import { loadBindings, matchBinding, isTypingTarget } from './hotkeys.js';
 import { detectHost, requestShutdown } from './host.js';
+import { fetchRemuxState } from './bridge.js';
 import { openFilesDialog } from './ui/files.js';
+import { openRemuxDialog } from './ui/remux.js';
 import { openMultiview } from './ui/multiview.js';
 import { WebGpuPreview } from './webgpu-preview.js';
 import { colorIntToHex, hexToColorInt } from './properties.js';
@@ -517,9 +519,28 @@ function buildUi() {
     switch (action) {
       case 'exit':
         if (await confirm({ title: 'Exit OBS', text: 'Shut down OBS Studio?', okLabel: 'Exit', danger: true })) {
+          // A remux in progress would be cut short and leave a partial file
+          // behind (the desktop dialog asks the same question before closing).
+          let force = false;
+          if (host.remux) {
+            const remux = await fetchRemuxState();
+            if (remux?.processing) {
+              const stop = await confirm({
+                title: 'Remuxing in progress',
+                text:
+                  'Remuxing is not finished, stopping now may render the target file unusable.\n' +
+                  'Are you sure you want to stop remuxing?',
+                okLabel: 'Yes',
+                cancelLabel: 'No',
+                danger: true,
+              });
+              if (!stop) break;
+              force = true;
+            }
+          }
           // Served by OBS itself: the embedded server exposes a shutdown
           // endpoint, so Exit really works (obs-websocket has no such request).
-          if (host.shutdown && (await requestShutdown())) {
+          if (host.shutdown && (await requestShutdown('', force))) {
             statusMessage('OBS is shutting down', 'success');
             break;
           }
@@ -721,7 +742,7 @@ function buildUi() {
         });
         break;
       case 'remuxRecordings':
-        statusMessage('The Remux Recordings dialog is not available in the web UI yet', 'warning');
+        await openRemuxDialog({ onStatus: statusMessage });
         break;
       case 'openPluginManager':
       case 'openScripts':
