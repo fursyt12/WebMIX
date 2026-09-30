@@ -37,11 +37,14 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonObject>
 #include <QString>
 #include <QVector>
 
 #include <util/platform.h>
 
+#include <cstring>
+#include <tuple>
 #include <utility>
 
 namespace {
@@ -258,6 +261,108 @@ bool RemoveTransition(const QString &name, QString &error)
 		return false;
 	}
 	return true;
+}
+
+/* Encoder choices for the Simple output mode, mirroring the option set and the
+ * localised labels of the desktop Settings dialog (OBSBasicSettings). The web
+ * UI stores the same symbolic values ("x264", "nvenc", ...) in the profile, so
+ * the two interfaces stay interchangeable. */
+QJsonObject EncoderOptions()
+{
+	struct Option {
+		const char *value;
+		const char *labelKey;
+		const char *requiredEncoder;
+	};
+
+	const Option videoOptions[] = {
+		{"x264", "Software", nullptr},
+		{"x264_lowcpu", "SoftwareLowCPU", nullptr},
+		{"qsv", "Hardware.QSV.H264", "obs_qsv11"},
+		{"qsv_av1", "Hardware.QSV.AV1", "obs_qsv11_av1"},
+		{"nvenc", "Hardware.NVENC.H264", "ffmpeg_nvenc"},
+		{"nvenc_av1", "Hardware.NVENC.AV1", "obs_nvenc_av1_tex"},
+		{"nvenc_hevc", "Hardware.NVENC.HEVC", "ffmpeg_hevc_nvenc"},
+		{"amd", "Hardware.AMD.H264", "h264_texture_amf"},
+		{"amd_hevc", "Hardware.AMD.HEVC", "h265_texture_amf"},
+		{"amd_av1", "Hardware.AMD.AV1", "av1_texture_amf"},
+		{"apple_h264", "Hardware.Apple.H264", "com.apple.videotoolbox.videoencoder.ave.avc"},
+		{"apple_hevc", "Hardware.Apple.HEVC", "com.apple.videotoolbox.videoencoder.ave.hevc"},
+	};
+
+	const auto available = [](const char *encoderId) {
+		if (!encoderId) {
+			return true;
+		}
+		const char *value = nullptr;
+		for (int index = 0; obs_enum_encoder_types(index, &value); index++) {
+			if (value && strcmp(value, encoderId) == 0) {
+				return true;
+			}
+		}
+		return false;
+	};
+
+	const auto buildVideo = [&](bool withLowCpu) {
+		QJsonArray list;
+		for (const Option &option : videoOptions) {
+			if (!withLowCpu && strcmp(option.value, "x264_lowcpu") == 0) {
+				continue;
+			}
+			QJsonObject entry;
+			entry["value"] = QString::fromUtf8(option.value);
+			entry["label"] = QTStr(QStringLiteral("Basic.Settings.Output.Simple.Encoder.%1")
+						       .arg(QString::fromUtf8(option.labelKey))
+						       .toUtf8()
+						       .constData());
+			entry["available"] = available(option.requiredEncoder);
+			list.append(entry);
+		}
+		return list;
+	};
+
+	/* OBS stores the audio encoder as "aac"/"opus", while the encoder ids are
+	 * "ffmpeg_aac"/"ffmpeg_opus"; the profile keys use the short form. */
+	QJsonArray audio;
+	for (const auto &[value, labelKey, encoderId] :
+	     {std::tuple{"aac", "Basic.Settings.Output.Simple.Codec.AAC.Default", "ffmpeg_aac"},
+	      std::tuple{"opus", "Basic.Settings.Output.Simple.Codec.Opus", "ffmpeg_opus"}}) {
+		QJsonObject entry;
+		entry["value"] = QString::fromUtf8(value);
+		entry["label"] = QTStr(labelKey);
+		entry["available"] = available(encoderId);
+		audio.append(entry);
+	}
+
+	QJsonObject result;
+	result["videoRecording"] = buildVideo(true);
+	result["videoStreaming"] = buildVideo(false);
+	result["audio"] = audio;
+	/* Same order and values as OBSBasicSettings::FillSimpleRecordingValues. */
+	QJsonArray formats;
+	for (const auto &[value, labelKey] :
+	     {std::pair{"flv", "FLV"}, std::pair{"mkv", "MKV"}, std::pair{"mp4", "MP4"}, std::pair{"mov", "MOV"},
+	      std::pair{"hybrid_mp4", "hMP4"}, std::pair{"hybrid_mov", "hMOV"}, std::pair{"fragmented_mp4", "fMP4"},
+	      std::pair{"fragmented_mov", "fMOV"}, std::pair{"mpegts", "TS"}}) {
+		QJsonObject entry;
+		entry["value"] = QString::fromUtf8(value);
+		entry["label"] = QTStr(QStringLiteral("Basic.Settings.Output.Format.%1")
+					       .arg(QString::fromUtf8(labelKey))
+					       .toUtf8()
+					       .constData());
+		formats.append(entry);
+	}
+	result["recordingFormats"] = formats;
+	result["recordingQualities"] = QJsonArray{
+		QJsonObject{{"value", "Stream"},
+			    {"label", QTStr("Basic.Settings.Output.Simple.RecordingQuality.Stream")}},
+		QJsonObject{{"value", "Small"},
+			    {"label", QTStr("Basic.Settings.Output.Simple.RecordingQuality.Small")}},
+		QJsonObject{{"value", "HQ"}, {"label", QTStr("Basic.Settings.Output.Simple.RecordingQuality.HQ")}},
+		QJsonObject{{"value", "Lossless"},
+			    {"label", QTStr("Basic.Settings.Output.Simple.RecordingQuality.Lossless")}},
+	};
+	return result;
 }
 
 } // namespace WebMixBridge

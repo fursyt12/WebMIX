@@ -46,6 +46,9 @@ QJsonObject TransitionProperties(const QString &transitionName);
 bool PressButton(const QString &scope, const QString &sourceName, const QString &filterName,
 		 const QString &propertyName, QString &error);
 
+/*! Encoder choices for the Simple output mode, as the desktop settings offer them. */
+QJsonObject EncoderOptions();
+
 /*! Every hotkey with its current bindings, formatted by OBS itself. */
 QJsonArray Hotkeys();
 

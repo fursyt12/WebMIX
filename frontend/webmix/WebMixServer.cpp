@@ -343,6 +343,11 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		return;
 	}
 
+	if (path == "/api/encoders") {
+		SendJson(socket, QJsonDocument(WebMixBridge::EncoderOptions()).toJson(QJsonDocument::Compact));
+		return;
+	}
+
 	/* --- file access (recordings, logs, settings) -------------------------- */
 	if (path == "/api/files/list") {
 		const QString kind = query.queryItemValue("kind");
