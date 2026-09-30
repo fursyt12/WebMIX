@@ -18,16 +18,34 @@
 #include "WebMixPreview.hpp"
 
 #include <QBuffer>
+#include <QStringList>
 #include <QTcpSocket>
 #include <QTimer>
 
+#include <obs-frontend-api.h>
 #include <obs.hpp>
 #include <graphics/graphics.h>
 #include <util/platform.h>
 
+#include <algorithm>
+#include <vector>
+#include <cmath>
 #include <string.h>
 
 namespace WebMixPreview {
+
+/* Tile colours for the multiview grid, packed for QImage::Format_RGBA8888
+ * (byte order R, G, B, A in memory). */
+constexpr uint32_t PackRGBA(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
+{
+	return static_cast<uint32_t>(r) | (static_cast<uint32_t>(g) << 8) | (static_cast<uint32_t>(b) << 16) |
+	       (static_cast<uint32_t>(a) << 24);
+}
+
+/* Border grey, program blue and canvas background, from the OBS theme. */
+constexpr uint32_t kBorderColor = PackRGBA(0x3C, 0x40, 0x4D);
+constexpr uint32_t kProgramColor = PackRGBA(0x28, 0x4C, 0xB8);
+constexpr uint32_t kBackgroundColor = PackRGBA(0x13, 0x14, 0x1A);
 
 namespace {
 
@@ -126,6 +144,128 @@ QImage CaptureSource(const QString &sourceName, uint32_t width, uint32_t height,
 	return ok ? image : QImage();
 }
 
+QStringList SceneNamesInDisplayOrder()
+{
+	QStringList names;
+
+	obs_frontend_source_list scenes = {};
+	obs_frontend_get_scenes(&scenes);
+	/* The frontend list is top-first, which is the order the UI shows and the
+	 * order a multiview should read in. */
+	for (size_t i = 0; i < scenes.sources.num; i++) {
+		const char *name = obs_source_get_name(scenes.sources.array[i]);
+		if (name) {
+			names.append(QString::fromUtf8(name));
+		}
+	}
+	obs_frontend_source_list_free(&scenes);
+	return names;
+}
+
+QImage CaptureMultiview(const QStringList &requested, uint32_t width, uint32_t height, bool &ok)
+{
+	ok = false;
+
+	const QStringList names = requested.isEmpty() ? SceneNamesInDisplayOrder() : requested;
+	if (names.isEmpty() || width == 0 || height == 0) {
+		return QImage();
+	}
+
+	/* Each tile is rendered on its own with the same code path as the single
+	 * preview (which handles aspect fitting), then blitted onto the grid on the
+	 * CPU. Composing with nested viewports/projections inside one render pass
+	 * interacts badly with the projection a scene sets up for itself; this way
+	 * the result is exactly the tiles at the coordinates we asked for. */
+	const int count = names.size();
+	const int columns = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(count))));
+	const int rows = static_cast<int>(std::ceil(static_cast<double>(count) / columns));
+	const int tileWidth = static_cast<int>(width) / columns;
+	const int tileHeight = static_cast<int>(height) / rows;
+	const int border = 2;
+
+	QImage image(width, height, QImage::Format_RGBA8888);
+	image.fill(Qt::transparent);
+
+	/* Paint the whole surface with the canvas colour first. */
+	const auto fillAll = [&image](uint32_t color) {
+		for (int y = 0; y < image.height(); y++) {
+			auto *line = reinterpret_cast<uint32_t *>(image.scanLine(y));
+			for (int x = 0; x < image.width(); x++) {
+				line[x] = color;
+			}
+		}
+	};
+	fillAll(kBackgroundColor);
+
+	const auto fillRect = [&image](int left, int top, int rectWidth, int rectHeight, uint32_t color) {
+		const int x0 = std::max(0, left);
+		const int y0 = std::max(0, top);
+		const int x1 = std::min(image.width(), left + rectWidth);
+		const int y1 = std::min(image.height(), top + rectHeight);
+		for (int y = y0; y < y1; y++) {
+			auto *line = reinterpret_cast<uint32_t *>(image.scanLine(y));
+			for (int x = x0; x < x1; x++) {
+				line[x] = color;
+			}
+		}
+	};
+
+	const auto blit = [&image](const QImage &tile, int centerX, int centerY) {
+		const int left = centerX - tile.width() / 2;
+		const int top = centerY - tile.height() / 2;
+		for (int y = 0; y < tile.height(); y++) {
+			const int destY = top + y;
+			if (destY < 0 || destY >= image.height()) {
+				continue;
+			}
+			const int copyLeft = std::max(0, left);
+			const int copyRight = std::min(image.width(), left + tile.width());
+			if (copyRight <= copyLeft) {
+				continue;
+			}
+			memcpy(image.scanLine(destY) + copyLeft * 4, tile.constScanLine(y) + (copyLeft - left) * 4,
+			       static_cast<size_t>(copyRight - copyLeft) * 4);
+		}
+	};
+
+	OBSSourceAutoRelease program = obs_frontend_get_current_scene();
+	const char *programName = program ? obs_source_get_name(program) : nullptr;
+
+	QStringList composed;
+	int rendered = 0;
+
+	for (int index = 0; index < count; index++) {
+		const QString &name = names[index];
+		const int column = index % columns;
+		const int row = index / columns;
+		const int left = column * tileWidth;
+		const int top = row * tileHeight;
+
+		/* Multiview uses the program scene's name to outline its tile. */
+		const bool isProgram = programName && name == QString::fromUtf8(programName);
+		fillRect(left, top, tileWidth, tileHeight, isProgram ? kProgramColor : kBorderColor);
+		fillRect(left + border, top + border, tileWidth - border * 2, tileHeight - border * 2,
+			 kBackgroundColor);
+
+		bool tileOk = false;
+		const QImage tile = CaptureSource(name, static_cast<uint32_t>(tileWidth - border * 4),
+						  static_cast<uint32_t>(tileHeight - border * 4), tileOk);
+		if (tileOk) {
+			blit(tile, left + tileWidth / 2, top + tileHeight / 2);
+			rendered++;
+			composed.append(name);
+		} else {
+			composed.append(name + QLatin1String(" (empty)"));
+		}
+	}
+
+	blog(LOG_INFO, "[WebMIX] Multiview %dx%d grid from %d scene(s): %s", columns, rows, rendered,
+	     qUtf8Printable(composed.join(QLatin1String(" | "))));
+
+	ok = rendered > 0;
+	return ok ? image : QImage();
+}
+
 QByteArray EncodeJpeg(const QImage &image, int quality)
 {
 	if (image.isNull()) {
@@ -143,14 +283,15 @@ QByteArray EncodeJpeg(const QImage &image, int quality)
 }
 
 Stream::Stream(QTcpSocket *socket_, QString sourceName_, int width_, int height_, int fps_, int quality_,
-	       QObject *parent)
+	       QObject *parent, Mode mode_)
 	: QObject(parent),
 	  socket(socket_),
 	  sourceName(std::move(sourceName_)),
 	  width(width_),
 	  height(height_),
 	  fps(fps_),
-	  quality(quality_)
+	  quality(quality_),
+	  mode(mode_)
 {
 }
 

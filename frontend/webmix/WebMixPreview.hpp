@@ -21,6 +21,7 @@
 #include <QImage>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 class QTcpSocket;
 class QTimer;
@@ -36,6 +37,16 @@ namespace WebMixPreview {
 
 /*! Render a source/scene into an RGBA image. Sets `ok` on success. */
 QImage CaptureSource(const QString &sourceName, uint32_t width, uint32_t height, bool &ok);
+
+/*!
+ * Compose a grid of scenes into one image, like OBS's Multiview: every scene in
+ * a tile, with the program scene outlined. An empty `sceneNames` uses the
+ * current scene list in display order.
+ */
+QImage CaptureMultiview(const QStringList &sceneNames, uint32_t width, uint32_t height, bool &ok);
+
+/*! Current scene names in display order (top of the OBS list first). */
+QStringList SceneNamesInDisplayOrder();
 
 /*! Encode an image as JPEG; returns an empty array when the plugin is missing. */
 QByteArray EncodeJpeg(const QImage &image, int quality);
@@ -54,8 +65,11 @@ class Stream : public QObject {
 	Q_OBJECT
 
 public:
+	/** What a stream renders: one source, or the scene grid. */
+	enum class Mode { Source, Multiview };
+
 	Stream(QTcpSocket *socket, QString sourceName, int width, int height, int fps, int quality,
-	       QObject *parent = nullptr);
+	       QObject *parent = nullptr, Mode mode = Mode::Source);
 
 	/*! Send the response headers and start ticking. */
 	void Start();
@@ -74,6 +88,7 @@ private:
 	int quality;
 	QTimer *timer = nullptr;
 	bool started = false;
+	Mode mode = Mode::Source;
 	QImage lastFrame;
 };
 

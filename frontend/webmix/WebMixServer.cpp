@@ -276,21 +276,40 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 	UNUSED_PARAMETER(body);
 
 	/* --- live preview frames ------------------------------------------------ */
-	if (path == "/api/preview.mjpg" || path == "/api/preview.jpg") {
+	if (path == "/api/preview.mjpg" || path == "/api/preview.jpg" || path == "/api/preview/multiview.mjpg" ||
+	    path == "/api/preview/multiview.jpg") {
+		const bool multiview = path.contains(QLatin1String("multiview"));
+		const bool singleFrame = path.endsWith(QLatin1String(".jpg"));
 		const QString source = query.queryItemValue("source");
-		if (source.isEmpty()) {
+
+		if (!multiview && source.isEmpty()) {
 			SendError(socket, 400, "Missing source");
 			return;
 		}
-		const int width = query.queryItemValue("width").toInt();
-		const int height = query.queryItemValue("height").toInt();
+
+		/* Multiview defaults to a 16:9 grid; a single source uses its own size
+		 * when no dimensions are given. */
+		int width = query.queryItemValue("width").toInt();
+		int height = query.queryItemValue("height").toInt();
+		if (multiview && (width <= 0 || height <= 0)) {
+			width = 1280;
+			height = 720;
+		}
 		const int quality = qBound(1, query.queryItemValue("quality").toInt() ?: 75, 100);
 
-		if (path == "/api/preview.jpg") {
+		/* A caller may pin the tile order (and selection) explicitly. */
+		QStringList sceneList;
+		const QString scenes = query.queryItemValue("scenes");
+		if (multiview && !scenes.isEmpty()) {
+			sceneList = scenes.split(',', Qt::SkipEmptyParts);
+		}
+
+		if (singleFrame) {
 			bool ok = false;
-			const QImage frame = WebMixPreview::CaptureSource(source, width, height, ok);
+			const QImage frame = multiview ? WebMixPreview::CaptureMultiview(sceneList, width, height, ok)
+						       : WebMixPreview::CaptureSource(source, width, height, ok);
 			if (!ok) {
-				SendError(socket, 503, "Source is not renderable");
+				SendError(socket, 503, multiview ? "No scenes to compose" : "Source is not renderable");
 				return;
 			}
 			const QByteArray jpeg = WebMixPreview::EncodeJpeg(frame, quality);
@@ -317,7 +336,9 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		const int fps = qBound(1, query.queryItemValue("fps").toInt() ?: 15, 60);
 		/* The stream owns the socket from here on. */
 		disconnect(socket, nullptr, this, nullptr);
-		auto *stream = new WebMixPreview::Stream(socket, source, width, height, fps, quality, this);
+		auto *stream = new WebMixPreview::Stream(socket, source, width, height, fps, quality, this,
+							 multiview ? WebMixPreview::Stream::Mode::Multiview
+								   : WebMixPreview::Stream::Mode::Source);
 		stream->Start();
 		return;
 	}
@@ -503,6 +524,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		status["shutdownEndpoint"] = true;
 		status["propertySchema"] = true;
 		status["previewStream"] = true;
+		status["multiview"] = true;
 		status["operations"] = true;
 		status["fileAccess"] = true;
 		SendJson(socket, QJsonDocument(status).toJson(QJsonDocument::Compact));
