@@ -1,0 +1,1241 @@
+/*
+ * WebMIX - application layout.
+ *
+ * obs.css implements the OBS *theme* (colours, widget chrome).  This file
+ * implements the OBS *window structure*: the dock workspace, splitter
+ * geometry, source/scene lists, mixer strip layout, property forms and the
+ * connect screen.  It only consumes the custom properties defined in obs.css.
+ */
+
+/* ------------------------------------------------------------------- shell */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/*
+ * obs.css sets `display` on several themed widgets (.obs-preview-label,
+ * .obs-meter, ...), which would override the user-agent `[hidden]` rule and
+ * leave elements visible after `el.hidden = true`.  A global reset keeps
+ * `hidden` authoritative everywhere.
+ */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body.obs-app {
+  background: var(--obs-window-bg);
+  color: var(--obs-text);
+  font-family: var(--obs-font-family);
+  font-size: var(--obs-font-size);
+  overflow: hidden;
+}
+
+.obs-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+}
+
+.obs-menubar {
+  flex: 0 0 auto;
+}
+
+.obs-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-base);
+  min-height: 30px;
+  padding: 0 var(--obs-padding-large);
+  border-bottom: var(--obs-border-width) solid var(--obs-border);
+}
+
+.obs-toolbar[hidden] {
+  display: none;
+}
+
+.obs-toolbar-spacer,
+.obs-toolbar-sep {
+  flex: 0 0 auto;
+}
+
+.obs-toolbar-context {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+}
+
+.obs-toolbar-context-label {
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.obs-statusbar {
+  flex: 0 0 auto;
+}
+
+.obs-statusbar-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-wide);
+  min-height: 26px;
+  padding: 0 6px;
+}
+
+.obs-status-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obs-statusbar[data-message-kind='error'] .obs-status-message {
+  color: var(--obs-error-bright);
+}
+
+.obs-statusbar[data-message-kind='warning'] .obs-status-message {
+  color: var(--obs-warning-bright);
+}
+
+.obs-statusbar[data-message-kind='success'] .obs-status-message {
+  color: var(--obs-success-bright);
+}
+
+.obs-status-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+}
+
+.obs-status-time.is-disabled {
+  color: var(--obs-text-disabled);
+}
+
+.obs-status-icon {
+  color: var(--obs-text-disabled);
+}
+
+.obs-status-icon.is-active {
+  color: var(--obs-error-bright);
+}
+
+.obs-status-icon.is-paused {
+  color: var(--obs-warning-bright);
+}
+
+.obs-status-network[data-state='excellent']::before,
+.obs-status-network[data-state='good']::before,
+.obs-status-network[data-state='mediocre']::before,
+.obs-status-network[data-state='bad']::before,
+.obs-status-network[data-state='inactive']::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--obs-text-disabled);
+}
+
+.obs-status-network[data-state='excellent']::before { background: var(--obs-success-bright); }
+.obs-status-network[data-state='good']::before { background: var(--obs-success); }
+.obs-status-network[data-state='mediocre']::before { background: var(--obs-warning); }
+.obs-status-network[data-state='bad']::before { background: var(--obs-error); }
+
+/* --------------------------------------------------------------- workspace */
+
+.obs-workspace {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Row holding the side docks and the preview (full-height docks ON). */
+.obs-workspace-top {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+
+.obs-dock-column {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: var(--obs-left-width, 280px);
+  min-width: 150px;
+  max-width: 60vw;
+  min-height: 0;
+}
+
+.obs-main-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.obs-dock-row {
+  display: flex;
+  flex: 0 0 auto;
+  height: var(--obs-bottom-height, 225px);
+  min-height: 90px;
+  max-height: 70vh;
+  min-width: 0;
+}
+
+.obs-dock-slot {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.obs-dock-slot[hidden] {
+  display: none;
+}
+
+.obs-dock-slot[data-dock='scenes'] { flex: 1 1 45%; }
+.obs-dock-slot[data-dock='sources'] { flex: 1 1 55%; }
+.obs-dock-slot[data-dock='transitions'] { flex: 0 0 24%; }
+.obs-dock-slot[data-dock='controls'] { flex: 0 0 26%; }
+.obs-dock-slot[data-dock='mixer'] { flex: 1 1 50%; }
+.obs-dock-slot[data-dock='stats'] { flex: 1 1 30%; min-width: 110px; }
+
+/* Custom Browser Docks column (Docks > Custom Browser Docks...). */
+.obs-dock-column.is-right {
+  width: var(--obs-right-width, 300px);
+}
+
+.obs-custom-dock {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.obs-custom-dock-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+}
+
+.obs-custom-dock-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-wide);
+}
+
+.obs-custom-dock-row {
+  display: flex;
+  gap: var(--obs-padding-large);
+  align-items: flex-end;
+}
+
+.obs-custom-dock-fields {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+  gap: var(--obs-padding-base) var(--obs-padding-large);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Stats dock / dialog table. */
+.obs-stats-panel {
+  padding: var(--obs-padding-large);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.obs-stats-table th {
+  text-align: left;
+  font-weight: var(--obs-font-weight-normal);
+  color: var(--obs-text-muted);
+  padding-right: var(--obs-padding-wide);
+}
+
+.obs-stats-table td {
+  text-align: right;
+}
+
+.obs-dock {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  margin: 1px;
+  overflow: hidden;
+}
+
+.obs-dock-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.obs-dock-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.obs-dock-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------- splitters */
+
+.obs-splitter {
+  flex: 0 0 auto;
+  background: transparent;
+  position: relative;
+  z-index: 2;
+}
+
+.obs-splitter-v {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.obs-splitter-h {
+  height: 4px;
+  cursor: row-resize;
+}
+
+.obs-splitter:hover,
+.obs-splitter.is-dragging {
+  background: var(--obs-separator-hover);
+}
+
+.obs-splitter:focus-visible {
+  outline: 1px solid var(--obs-highlight-color);
+}
+
+/* ----------------------------------------------------------------- preview */
+
+.obs-preview {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--obs-preview-bg);
+}
+
+.obs-preview-labels {
+  display: flex;
+  gap: var(--obs-padding-wide);
+}
+
+.obs-preview-canvas {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--obs-padding-large);
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--obs-padding-large);
+}
+
+.obs-preview-pane {
+  position: relative;
+  flex: 1 1 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.obs-preview-pane.is-broken::after {
+  content: 'Preview unavailable';
+  position: absolute;
+  color: var(--obs-text-muted);
+}
+
+.obs-preview-image {
+  display: block;
+  object-fit: contain;
+  transform-origin: center center;
+  user-select: none;
+}
+
+.obs-preview-pane.is-empty .obs-preview-image {
+  visibility: hidden;
+}
+
+.obs-preview-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--obs-padding-large);
+  text-align: center;
+  pointer-events: none;
+}
+
+.obs-preview-placeholder[hidden] {
+  display: none;
+}
+
+.obs-preview-empty-title {
+  font-size: var(--obs-font-size-large);
+  font-weight: var(--obs-font-weight-bold);
+}
+
+/* ------------------------------------------------------- lists and toolbars */
+
+.obs-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.obs-list,
+.obs-tree,
+.obs-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.obs-list-toolbar,
+.obs-mixer-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-small);
+  padding: var(--obs-padding-base);
+  min-height: 26px;
+}
+
+.obs-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+  padding: var(--obs-padding-base) var(--obs-padding-large);
+  cursor: default;
+  user-select: none;
+}
+
+.obs-list-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obs-scene-list.is-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--obs-spacing-large);
+  padding: var(--obs-padding-large);
+}
+
+.obs-scene-list.is-grid .obs-list-item {
+  min-height: 64px;
+  justify-content: center;
+}
+
+.obs-scene-badges {
+  display: inline-flex;
+  gap: var(--obs-padding-base);
+  margin-left: auto;
+}
+
+.obs-source-item {
+  display: grid;
+  grid-template-columns: 18px 18px 18px 1fr;
+  align-items: center;
+  gap: var(--obs-padding-base);
+}
+
+.obs-source-item.is-hidden .obs-list-label {
+  color: var(--obs-text-muted);
+}
+
+.obs-source-toggle {
+  padding: 0;
+  min-width: 16px;
+}
+
+.obs-source-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.obs-inline-edit {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.obs-icon {
+  display: block;
+}
+
+.obs-empty {
+  padding: var(--obs-padding-wide);
+  color: var(--obs-text-muted);
+  text-align: center;
+}
+
+/* --------------------------------------------------------------- transitions */
+
+.obs-transitions-panel {
+  gap: var(--obs-padding-large);
+  padding: var(--obs-padding-large);
+}
+
+.obs-transition-combo {
+  width: 100%;
+}
+
+.obs-transition-duration {
+  gap: var(--obs-padding-large);
+}
+
+.obs-transition-duration .obs-spin {
+  width: 90px;
+}
+
+.obs-transition-buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-base);
+}
+
+.obs-transition-studio {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-large);
+  margin-top: auto;
+}
+
+.obs-transition-studio[hidden] {
+  display: none;
+}
+
+.obs-tbar {
+  width: 100%;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+.obs-controls-panel {
+  gap: var(--obs-padding-base);
+  padding: var(--obs-padding-large);
+}
+
+.obs-control-btn {
+  min-height: 30px;
+}
+
+.obs-control-row {
+  display: flex;
+  gap: var(--obs-padding-base);
+}
+
+.obs-control-row .obs-control-btn {
+  flex: 1 1 auto;
+}
+
+.obs-control-icon-btn {
+  flex: 0 0 auto;
+  min-width: 30px;
+}
+
+.obs-btn.is-active {
+  color: var(--obs-error-bright);
+}
+
+.obs-btn.is-active.obs-studio-btn {
+  color: var(--obs-success-bright);
+}
+
+.obs-btn.is-paused {
+  color: var(--obs-warning-bright);
+}
+
+/* -------------------------------------------------------------- audio mixer */
+
+.obs-mixer-panel {
+  background: var(--obs-panel-bg);
+}
+
+.obs-mixer-list {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--obs-padding-base);
+  padding: var(--obs-padding-base);
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 0;
+}
+
+.obs-mixer-strip {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 96px;
+  min-width: 82px;
+  max-width: 150px;
+  min-height: 0;
+  padding: var(--obs-padding-base);
+  gap: var(--obs-padding-base);
+}
+
+.obs-mixer-strip-top {
+  display: flex;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+
+.obs-mixer-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  color: var(--obs-text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.obs-mixer-name:hover {
+  color: var(--obs-primary-lighter);
+}
+
+/* OBS channel strip: [mute/monitor column] [fader] [meter]. */
+.obs-mixer-strip-main {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: var(--obs-padding-small);
+}
+
+.obs-mixer-buttons {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--obs-padding-small);
+  flex: 0 0 auto;
+}
+
+.obs-mixer-btn {
+  min-width: 26px;
+  padding: 2px;
+}
+
+.obs-mixer-fader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* OBS uses a vertical fader in the default (vertical) mixer layout. */
+.obs-mixer-list:not(.is-horizontal) .obs-volume-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 22px;
+  flex: 1 1 auto;
+  min-height: 60px;
+  margin: 0 auto;
+}
+
+.obs-mixer-meter {
+  position: relative;
+  flex: 0 0 14px;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  min-height: 0;
+}
+
+.obs-mixer-meter .obs-meter {
+  height: 100%;
+  width: 12px;
+}
+
+.obs-meter-peak {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--obs-text);
+}
+
+.obs-volume-slider {
+  width: 100%;
+}
+
+.obs-volume-label {
+  font-size: 9px;
+  color: var(--obs-text-muted);
+  white-space: nowrap;
+}
+
+.obs-mixer-list.is-horizontal {
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.obs-mixer-list.is-horizontal .obs-mixer-strip {
+  flex-direction: row;
+  max-width: none;
+  max-height: 60px;
+}
+
+.obs-mixer-list.is-horizontal .obs-mixer-strip-main {
+  flex-direction: row;
+  align-items: center;
+}
+
+.obs-mixer-list.is-horizontal .obs-mixer-buttons {
+  flex-direction: row;
+  justify-content: center;
+}
+
+/* ------------------------------------------------------------------- dialogs */
+
+.obs-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.obs-dialog {
+  display: flex;
+  flex-direction: column;
+  max-width: 96vw;
+  max-height: 92vh;
+  overflow: hidden;
+}
+
+.obs-dialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--obs-padding-large);
+  flex: 0 0 auto;
+}
+
+.obs-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--obs-padding-wide);
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-large);
+}
+
+.obs-dialog-footer {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--obs-padding-wide);
+}
+
+.obs-dialog-buttons {
+  display: flex;
+  gap: var(--obs-padding-large);
+  margin-left: auto;
+}
+
+.obs-dialog-close {
+  flex: 0 0 auto;
+}
+
+.obs-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--obs-padding-large);
+}
+
+.obs-menu {
+  position: fixed;
+  z-index: 1100;
+  min-width: 200px;
+}
+
+.obs-context-menu {
+  position: fixed;
+}
+
+.obs-menu-check {
+  display: inline-block;
+  width: 14px;
+}
+
+.obs-menu-arrow {
+  margin-left: auto;
+  padding-left: var(--obs-padding-large);
+}
+
+.obs-submenu {
+  position: absolute;
+  left: 100%;
+  top: 0;
+}
+
+.obs-message-row {
+  display: flex;
+  gap: var(--obs-padding-wide);
+  align-items: flex-start;
+}
+
+.obs-message-icon {
+  font-size: var(--obs-font-size-xlarge);
+}
+
+.obs-message-text {
+  white-space: pre-wrap;
+}
+
+/* ------------------------------------------------------------- connect screen */
+
+.obs-connect-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--obs-window-bg);
+  z-index: 900;
+}
+
+.obs-connect-screen[hidden] {
+  display: none;
+}
+
+.obs-connect-card {
+  width: 460px;
+  max-width: 94vw;
+}
+
+.obs-connect-logo {
+  font-size: var(--obs-font-size-heading);
+  font-weight: var(--obs-font-weight-bold);
+  text-align: center;
+}
+
+.obs-connect-status {
+  min-height: 20px;
+}
+
+.obs-connect-status.is-error {
+  color: var(--obs-error-bright);
+}
+
+.obs-connect-status.is-ok {
+  color: var(--obs-success-bright);
+}
+
+/* ------------------------------------------------------------- property forms */
+
+.obs-property-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-base);
+}
+
+.obs-property-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 34%) 1fr;
+  align-items: center;
+  gap: var(--obs-padding-large);
+  min-height: 30px;
+}
+
+.obs-property-row > .obs-hint {
+  grid-column: 1 / -1;
+}
+
+.obs-property-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obs-property-number,
+.obs-property-text,
+.obs-property-select,
+.obs-property-json {
+  width: 100%;
+}
+
+.obs-property-json {
+  resize: vertical;
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
+}
+
+.obs-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+}
+
+.obs-radio-row,
+.obs-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+}
+
+.obs-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--obs-padding-base);
+}
+
+.obs-inline .obs-input {
+  width: 90px;
+}
+
+/* ---------------------------------------------------------------- filters UI */
+
+.obs-filters-layout {
+  display: flex;
+  gap: var(--obs-padding-wide);
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.obs-filters-left {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 240px;
+  min-height: 0;
+}
+
+.obs-filters-right {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: var(--obs-padding-base);
+}
+
+.obs-filter-settings {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.obs-filter-item {
+  gap: var(--obs-padding-large);
+}
+
+.obs-group-title {
+  font-weight: var(--obs-font-weight-bold);
+  padding: var(--obs-padding-large) 0;
+}
+
+/* ----------------------------------------------------------------- transform */
+
+.obs-transform-columns {
+  display: flex;
+  gap: var(--obs-padding-wide);
+}
+
+.obs-transform-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.obs-align-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  grid-template-rows: repeat(3, 22px);
+  gap: 2px;
+  margin-bottom: var(--obs-padding-large);
+}
+
+.obs-align-cell {
+  background: var(--obs-button-bg);
+  border: 1px solid var(--obs-border);
+  border-radius: var(--obs-radius-sm);
+  cursor: pointer;
+}
+
+.obs-align-cell.is-selected {
+  background: var(--obs-primary);
+  border-color: var(--obs-primary-lighter);
+}
+
+/* -------------------------------------------------------- advanced audio */
+
+.obs-adv-audio {
+  overflow: auto;
+}
+
+.obs-adv-audio-table th,
+.obs-adv-audio-table td {
+  padding: var(--obs-padding-base) var(--obs-padding-large);
+}
+
+.obs-adv-number {
+  width: 80px;
+}
+
+.obs-adv-balance {
+  width: 90px;
+}
+
+.obs-adv-tracks {
+  display: flex;
+  gap: var(--obs-padding-base);
+}
+
+/* ------------------------------------------------------------ source add UI */
+
+.obs-source-add-columns {
+  display: flex;
+  gap: var(--obs-padding-wide);
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.obs-source-add-left {
+  flex: 0 0 46%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.obs-source-add-left .obs-list {
+  border: 1px solid var(--obs-border);
+}
+
+.obs-source-add-right {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-large);
+}
+
+.obs-source-kind-list .obs-list-item,
+.obs-source-existing-list .obs-list-item {
+  gap: var(--obs-padding-large);
+}
+
+/* --------------------------------------------------------------------- misc */
+
+.obs-about-title {
+  font-size: var(--obs-font-size-xlarge);
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.obs-about-subtitle {
+  color: var(--obs-text-muted);
+  margin-bottom: var(--obs-padding-wide);
+}
+
+.obs-settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--obs-padding-wide);
+}
+
+.obs-drag-over {
+  outline: 1px dashed var(--obs-primary-lighter);
+}
+
+@media (max-width: 900px) {
+  .obs-dock-column {
+    width: 220px;
+  }
+  .obs-dock-row {
+    height: 200px;
+  }
+}
+
+/* ------------------------------------------------- schema-driven properties */
+
+/* Controls rendered from the OBS property schema (web/src/properties.js). */
+.obs-properties-schema {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-base);
+}
+
+.obs-property-group {
+  border: 1px solid var(--obs-border);
+  border-radius: var(--obs-radius);
+  padding: var(--obs-padding-large);
+  margin: var(--obs-padding-base) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-base);
+}
+
+.obs-property-group > legend {
+  padding: 0 var(--obs-padding-base);
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.obs-property-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-base);
+}
+
+.obs-property-group.is-collapsed .obs-property-group-body {
+  display: none;
+}
+
+.obs-property-row.is-disabled {
+  opacity: 0.55;
+}
+
+.obs-property-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+}
+
+.obs-property-slider input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 80px;
+}
+
+.obs-property-readout {
+  flex: 0 0 auto;
+  min-width: 64px;
+  text-align: right;
+  color: var(--obs-text-muted);
+}
+
+.obs-property-with-suffix {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-base);
+}
+
+.obs-property-info {
+  padding: var(--obs-padding-large);
+  border-radius: var(--obs-radius-sm);
+  background: var(--obs-info-surface);
+  color: var(--obs-text);
+}
+
+.obs-property-info.is-warning {
+  color: var(--obs-warning-bright);
+}
+
+.obs-property-info.is-error {
+  color: var(--obs-error-bright);
+}
+
+.obs-property-radio {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--obs-padding-large) var(--obs-padding-wide);
+}
+
+.obs-property-color,
+.obs-property-font-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+}
+
+.obs-property-color input[type='range'] {
+  width: 120px;
+}
+
+.obs-property-font {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-base);
+}
+
+.obs-property-font-meta input[type='number'] {
+  width: 80px;
+}
+
+.obs-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--obs-padding-base);
+}
+
+.obs-property-path {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-small);
+  min-width: 0;
+}
+
+.obs-monospace {
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
+}
+
+.obs-property-readout,
+.obs-property-slider input,
+.obs-property-with-suffix input {
+  min-width: 0;
+}
+
+/* WebGPU preview canvas: fills its pane; the shader does the aspect fitting. */
+.obs-preview-gpu {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: var(--obs-preview-bg);
+}

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>WebMIX - OBS Studio</title>
+    <link rel="stylesheet" href="assets/obs.css" />
+    <link rel="stylesheet" href="assets/layout.css" />
+  </head>
+  <body class="obs-app">
+    <div id="app" class="obs-root" hidden>
+      <nav id="menubar" class="obs-menubar" role="menubar" aria-label="Main menu"></nav>
+
+      <!-- Source toolbar (View > Source Toolbar) -->
+      <div id="source-toolbar" class="obs-toolbar" role="toolbar"></div>
+
+      <!-- Dock workspace: left column (Scenes/Sources) + preview + bottom row -->
+      <div id="workspace" class="obs-workspace">
+        <div id="workspace-top" class="obs-workspace-top">
+          <div id="dock-left" class="obs-dock-column">
+            <div class="obs-dock-slot" data-dock="scenes"></div>
+            <div id="splitter-left-h" class="obs-splitter obs-splitter-h" role="separator" aria-orientation="horizontal" tabindex="0"></div>
+            <div class="obs-dock-slot" data-dock="sources"></div>
+          </div>
+
+          <div id="splitter-vertical" class="obs-splitter obs-splitter-v" role="separator" aria-orientation="vertical" tabindex="0"></div>
+
+          <div id="main-area" class="obs-main-area">
+            <div id="preview-area" class="obs-preview">
+              <div id="preview-labels" class="obs-preview-labels">
+                <div id="preview-label" class="obs-preview-label is-preview">Preview</div>
+                <div id="program-label" class="obs-preview-label is-program" hidden>Program</div>
+              </div>
+              <div id="preview-canvas" class="obs-preview-canvas" tabindex="0">
+                <img id="preview-image" alt="" draggable="false" />
+                <div id="preview-placeholder" class="obs-preview-placeholder"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Custom Browser Docks (Docks > Custom Browser Docks...) -->
+          <div id="splitter-right" class="obs-splitter obs-splitter-v" role="separator" aria-orientation="vertical" tabindex="0" hidden></div>
+          <div id="dock-right" class="obs-dock-column is-right" hidden></div>
+        </div>
+
+        <div id="splitter-main-h" class="obs-splitter obs-splitter-h" role="separator" aria-orientation="horizontal" tabindex="0"></div>
+
+        <div id="dock-bottom" class="obs-dock-row">
+          <div class="obs-dock-slot" data-dock="transitions"></div>
+          <div class="obs-splitter obs-splitter-v" role="separator" aria-orientation="vertical" tabindex="0"></div>
+          <div class="obs-dock-slot" data-dock="controls"></div>
+          <div class="obs-splitter obs-splitter-v" role="separator" aria-orientation="vertical" tabindex="0"></div>
+          <div class="obs-dock-slot" data-dock="mixer"></div>
+          <div class="obs-splitter obs-splitter-v" role="separator" aria-orientation="vertical" tabindex="0"></div>
+          <div class="obs-dock-slot" data-dock="stats" hidden></div>
+        </div>
+      </div>
+
+      <footer id="statusbar" class="obs-statusbar"></footer>
+    </div>
+
+    <!-- Shown until the WebSocket connection is established. -->
+    <div id="connect-screen" class="obs-connect-screen">
+      <div class="obs-connect-card obs-dialog">
+        <div class="obs-dialog-title">WebMIX</div>
+        <div class="obs-dialog-body" id="connect-body"></div>
+        <div class="obs-dialog-footer" id="connect-footer"></div>
+      </div>
+    </div>
+
+    <div id="modal-root"></div>
+    <div id="menu-root"></div>
+    <div id="tooltip-root" class="obs-tooltip" hidden></div>
+
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>

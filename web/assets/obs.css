@@ -1,0 +1,2742 @@
+/* ==========================================================================
+ * obs.css — OBS Studio "Yami" / "Yami_Default" dark theme for the web
+ * ==========================================================================
+ * Generated from the OBS Studio source checkout (OBS Theme System, .obt).
+ *
+ * Primary source : frontend/data/themes/Yami.obt  (2887 lines)
+ * Default variant: frontend/data/themes/Yami_Default.ovt (stub — no overrides,
+ *                  so the default palette IS the Yami base palette)
+ * Spec           : web/docs/theme-spec.md
+ *
+ * Runtime variables resolved for the shipped defaults:
+ *   Appearance/FontScale = 10   ->  --obsFontScale
+ *   Appearance/Density   = Normal (padding 4)  ->  --obsPadding
+ *
+ * FIDELITY NOTES
+ *  - Qt Style Sheets use a content-box-ish model: `height: 22px` in the .obt is
+ *    the *content* height; padding (4px top/bottom) and 1px borders add to it.
+ *    The theme's declared control row is `--input_height_base: 30px`, so this
+ *    stylesheet sets controls to a 30px border-box height, which is the height
+ *    OBS actually renders at Normal density.
+ *  - There is NO elevation in this theme: no box-shadow, no blur, no opacity
+ *    effects, no gradients for depth. Depth is the grey ramp (#13141A ->
+ *    #1D1F26 -> #272A33 -> #323540 -> #3C404D -> #464B59 -> #5B6273) plus 1px
+ *    #3C404D borders. This file therefore contains zero box-shadow declarations.
+ *  - Checkbox indicators and chevrons use the *actual* SVG assets from the repo,
+ *    inlined as data URIs, so the artwork is byte-faithful (see §5 of the spec).
+ *    `frontend/data/themes/Dark/pin.svg` is a dangling reference in the .obt and
+ *    is deliberately not referenced here.
+ *  - QRadioButton, QSplitter, QTreeView and QTreeWidget have NO rules in
+ *    Yami.obt; they were drawn by the Qt base style (Fusion on Linux) from the
+ *    QPalette. Those are re-created here by hand and flagged "NOT IN QSS".
+ * ========================================================================== */
+
+
+/* ==========================================================================
+ * 1. FONT FACES
+ * QSS: QWidget { font-family: 'Open Sans', ... }  (Yami.obt L596)
+ * OBS registers these bundled faces as application fonts in obs-main.cpp:537.
+ * Copied verbatim from frontend/forms/fonts/ (217 KB / 225 KB / 213 KB).
+ * ========================================================================== */
+
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/OpenSans-Regular.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/OpenSans-Bold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/OpenSans-Italic.ttf') format('truetype');
+}
+
+
+/* ==========================================================================
+ * 2. DESIGN TOKENS
+ * QSS: @OBSThemeVars (Yami.obt L31-288) — resolved for FontScale 10, Normal.
+ * ========================================================================== */
+
+:root {
+  /* ============================================================
+   * OBS Studio default dark theme (Yami / Yami_Default)
+   * Resolved for FontScale = 10, Density = Normal (padding = 4)
+   * ============================================================ */
+
+  /* ---------- Surfaces ---------- */
+  --obs-window-bg:        #1D1F26; /* --bg_window : dialogs, main window, menu bar, menus */
+  --obs-panel-bg:         #272A33; /* --bg_base   : docks, lists, tables, group boxes, tooltips */
+  --obs-preview-bg:       #13141A; /* --bg_preview: video canvas */
+  --obs-dock-title-bg:    #323540; /* --grey5     : QDockWidget title bar */
+  --obs-dock-title-border:#3C404D; /* --grey4     : QDockWidget title border */
+  --obs-menu-bg:          #1D1F26; /* QMenu background (--bg_window) */
+  --obs-tooltip-bg:       #272A33; /* QToolTip background (--bg_base) */
+
+  /* ---------- Borders ---------- */
+  --obs-border:           #3C404D; /* --border_color / --grey4 */
+  --obs-border-width:     1px;
+  --obs-border-input:     #5B6273; /* --input_border / --grey1 */
+  --obs-border-input-hover:#5B6273;
+  --obs-border-focus:     #284CB8; /* --input_border_focus / --primary */
+  --obs-border-highlight: transparent; /* --border_highlight */
+  --obs-highlight-width:  1px;     /* --highlight_width */
+  --obs-highlight-color:  #718CDC; /* --highlight_color (keyboard focus) */
+
+  /* ---------- Radii ---------- */
+  --obs-radius:           4px;     /* --border_radius */
+  --obs-radius-sm:        2px;     /* --border_radius_small */
+  --obs-radius-lg:        6px;     /* --border_radius_large */
+
+  /* ---------- Text ---------- */
+  --obs-text:             #FFFFFF; /* --text */
+  --obs-text-light:       #FFFFFF; /* --text_light */
+  --obs-text-muted:       #969696; /* --text_muted */
+  --obs-text-disabled:    #969696; /* --text_disabled */
+  --obs-text-inactive:    #FFFEFF; /* --text_inactive */
+  --obs-text-on-accent:   #FFFFFF; /* selection-color */
+
+  /* ---------- Accent / primary blue ---------- */
+  --obs-primary:          #284CB8; /* blue3 : selection, checked, active tab */
+  --obs-primary-light:    #476BD7; /* blue2 : hover accent, slider fill, links */
+  --obs-primary-lighter:  #718CDC; /* blue1 : focus accent, .text-bright */
+  --obs-primary-dark:     #213E97; /* blue4 : pressed accent */
+  --obs-primary-darker:   #1A3278; /* blue5 : deepest accent */
+  --obs-primary-surface:  #162A64; /* blue6 : mixer category surface */
+
+  /* ---------- Interaction states ---------- */
+  --obs-hover-bg:         #464B59; /* --button_bg_hover / --grey3 */
+  --obs-pressed-bg:       #1D1F26; /* --button_bg_down / --grey7 */
+  --obs-disabled-bg:      #272A33; /* --button_bg_disabled / --grey6 */
+  --obs-selection-bg:     #284CB8; /* --list_item_bg_selected / --primary */
+  --obs-selection-hover-bg:#476BD7;/* --list_item_bg_hover / --primary_light */
+  --obs-selection-border: #476BD7; /* selected item border (--primary_light) */
+  --obs-focus-border:     #D2D2D2; /* --white3 : list-item focus ring */
+  --obs-list-hover-bg:    #3C404D; /* --grey4 : list/menu item hover bg */
+  --obs-list-hover-border:#464B59; /* --grey3 : list/menu item hover border */
+  --obs-separator-hover:  #FFFFFF; /* --separator_hover */
+
+  /* ---------- Inputs ---------- */
+  --obs-input-bg:         #3C404D; /* --input_bg / --grey4 */
+  --obs-input-bg-hover:   #1D1F26; /* --input_bg_hover */
+  --obs-input-bg-focus:   #1D1F26; /* --input_bg_focus */
+  --obs-input-border-hover:#5B6273;
+
+  /* ---------- Buttons ---------- */
+  --obs-button-bg:        #3C404D; /* --button_bg */
+  --obs-button-bg-hover:  #464B59; /* --button_bg_hover */
+  --obs-button-bg-down:   #1D1F26; /* --button_bg_down */
+  --obs-button-bg-disabled:#272A33;/* --button_bg_disabled */
+  --obs-button-border:    #3C404D; /* --button_border (= bg → borderless look) */
+  --obs-button-border-hover:#5B6273;
+
+  /* ---------- Tabs ---------- */
+  --obs-tab-bg:           #272A33; /* --tab_bg */
+  --obs-tab-bg-hover:     #464B59; /* --tab_bg_hover */
+  --obs-tab-bg-down:      #284CB8; /* --tab_bg_down */
+  --obs-tab-fg:           #969696; /* unselected tab text (--text_muted) */
+  --obs-tab-fg-active:    #FFFFFF;
+  --obs-tab-border-hover: #5B6273;
+  --obs-tab-border-focus: #718CDC;
+  --obs-tab-border-selected:#284CB8;
+
+  /* ---------- Scrollbars ---------- */
+  --obs-scrollbar-size:   12px;    /* --scrollbar_size */
+  --obs-scrollbar-bg:     #272A33; /* --scrollbar_bg / --grey6 */
+  --obs-scrollbar-handle: #3C404D; /* --scrollbar_handle / --grey4 */
+  --obs-scrollbar-hover:  #464B59; /* --scrollbar_hover / --grey3 */
+  --obs-scrollbar-active: #4E5566; /* --scrollbar_down / --grey2 */
+  --obs-scrollbar-border: #4E5566; /* --scrollbar_border / --grey2 */
+
+  /* ---------- Semantic status ---------- */
+  --obs-success:          #25A231; /* green3 : .text-success */
+  --obs-success-surface:  #0F4313; /* green6 : .bg-success */
+  --obs-success-bright:   #59D966; /* green1 : meter nominal fg */
+  --obs-warning:          #B88A16; /* yellow3 : .text-warning */
+  --obs-warning-surface:  #493709; /* yellow6 : .bg-warning */
+  --obs-warning-bright:   #EABC48; /* yellow1 : meter warning fg */
+  --obs-error:            #C01C37; /* red3 : .text-danger */
+  --obs-error-surface:    #590D1A; /* red6 : .bg-danger */
+  --obs-error-bright:     #E85E75; /* red1 : meter error fg */
+  --obs-info:             #0981B4; /* teal3 : .bg-secondary */
+  --obs-info-bright:      #3DBEF5; /* teal1 : .text-secondary */
+  --obs-info-surface:     #13141A; /* grey8 : .bg-info */
+
+  /* ---------- Audio meter (VolumeMeter qproperties) ---------- */
+  --obs-meter-nominal-bg:  #17641E; /* green5 */
+  --obs-meter-warning-bg:  #6E520D; /* yellow5 */
+  --obs-meter-error-bg:    #7D1224; /* red5 */
+  --obs-meter-nominal-fg:  #37D247; /* green2 */
+  --obs-meter-warning-fg:  #E5AF24; /* yellow2 */
+  --obs-meter-error-fg:    #E33B57; /* red2 */
+  --obs-meter-magnitude:   #000000; /* rgb(0,0,0) */
+  --obs-meter-major-tick:  #969696; /* white5 */
+  --obs-meter-minor-tick:  #5B6273; /* grey1 */
+  --obs-meter-nominal-bg-disabled: #646464; /* black4 */
+  --obs-meter-warning-bg-disabled: #828282; /* black5 */
+  --obs-meter-error-bg-disabled:   #414141; /* black3 */
+  --obs-meter-nominal-fg-disabled: #D2D2D2; /* white3 */
+  --obs-meter-warning-fg-disabled: #D2D2D2; /* white3 */
+  --obs-meter-error-fg-disabled:   #B4B4B4; /* white4 */
+
+  /* ---------- Mixer category chips ---------- */
+  --obs-mixer-category-bg:          #162A64; /* blue6 */
+  --obs-mixer-category-fg:          #718CDC; /* blue1 */
+  --obs-mixer-pinned-bg:            #1A3278; /* blue5 */
+  --obs-mixer-hidden-bg:            #2E1A60; /* purple6 */
+  --obs-mixer-hidden-fg:            #997FDC; /* purple1 */
+  --obs-mixer-unassigned-bg:        #493709; /* yellow6 */
+  --obs-mixer-unassigned-fg:        #EABC48; /* yellow1 */
+  --obs-mixer-inactive-bg:          #13141A; /* grey8 */
+  --obs-mixer-preview-bg:           #0F4313; /* green6 */
+  --obs-mixer-preview-fg:           #59D966; /* green1 */
+
+  /* ---------- Typography ---------- */
+  --obs-font-family: 'Open Sans', '.AppleSystemUIFont', Helvetica, Arial,
+                     'MS Shell Dlg', sans-serif;
+  --obs-font-size:        10pt;    /* 13.333px @96dpi */
+  --obs-font-size-small:  8pt;     /* 10.667px @96dpi */
+  --obs-font-size-xsmall: 6.75pt;  /* 9px      @96dpi */
+  --obs-font-size-large:  11pt;    /* 14.667px @96dpi */
+  --obs-font-size-xlarge: 15pt;    /* 20px     @96dpi */
+  --obs-font-size-heading:25pt;    /* 33.333px @96dpi */
+  --obs-font-weight-normal: 400;
+  --obs-font-weight-bold:   700;
+
+  /* ---------- Metrics ---------- */
+  --obs-icon:             16px;    /* --icon_base */
+  --obs-icon-sm:          14px;    /* --icon_small */
+  --obs-control-height:   22px;    /* --input_height */
+  --obs-control-row-height:30px;   /* --input_height_base */
+  --obs-spinbox-button-height:14px;/* --spinbox_button_height */
+  --obs-spinbox-min-width:55px;    /* --spinbox_min_width */
+  --obs-padding-base:     2px;
+  --obs-padding-small:    1px;
+  --obs-padding-large:    4px;
+  --obs-padding-xlarge:   7px;
+  --obs-padding-wide:     16px;
+  --obs-padding-menu:     12px;
+  --obs-padding-menubar:  7px;
+  --obs-spacing-base:     2px;
+  --obs-spacing-small:    1px;
+  --obs-spacing-large:    4px;
+}
+
+/* --------------------------------------------------------------------------
+ * 2b. SUPPLEMENTARY TOKENS (not in the §2 semantic block)
+ * The raw ramps are needed by a few rules that reference ramp entries
+ * directly, plus the inlined icon artwork from the repo's SVG assets.
+ * QSS: "OBS Color Palette" (Yami.obt L32-101)
+ * -------------------------------------------------------------------------- */
+
+:root {
+  /* Raw ramps, quoted verbatim from Yami.obt L33-101 */
+  --obs-blue1:  #718CDC;
+  --obs-blue2:  #476BD7;
+  --obs-blue3:  #284CB8;
+  --obs-blue4:  #213E97;
+  --obs-blue5:  #1A3278;
+  --obs-blue6:  #162A64;
+  --obs-red1:   #E85E75;
+  --obs-red2:   #E33B57;
+  --obs-red3:   #C01C37;
+  --obs-red4:   #A1172E;
+  --obs-red5:   #7D1224;
+  --obs-red6:   #590D1A;
+  --obs-green1: #59D966;
+  --obs-green2: #37D247;
+  --obs-green3: #25A231;
+  --obs-green4: #1E8528;
+  --obs-green5: #17641E;
+  --obs-green6: #0F4313;
+  --obs-yellow1:#EABC48;
+  --obs-yellow2:#E5AF24;
+  --obs-yellow3:#B88A16;
+  --obs-yellow4:#926E11;
+  --obs-yellow5:#6E520D;
+  --obs-yellow6:#493709;
+  --obs-purple1:#997FDC;
+  --obs-purple2:#805FD3;
+  --obs-purple3:#5B34BF;
+  --obs-purple4:#4D2CA0;
+  --obs-purple5:#3D2380;
+  --obs-purple6:#2E1A60;
+  --obs-teal1:  #3DBEF5;
+  --obs-teal2:  #16B1F3;
+  --obs-teal3:  #0981B4;
+  --obs-teal4:  #086F9B;
+  --obs-teal5:  #065374;
+  --obs-teal6:  #04374E;
+  --obs-grey1:  #5B6273;
+  --obs-grey2:  #4E5566;
+  --obs-grey3:  #464B59;
+  --obs-grey4:  #3C404D;
+  --obs-grey5:  #323540;
+  --obs-grey6:  #272A33;
+  --obs-grey7:  #1D1F26;
+  --obs-grey8:  #13141A;
+  --obs-white1: #FFFFFF;
+  --obs-white2: #E1E1E1;
+  --obs-white3: #D2D2D2;
+  --obs-white4: #B4B4B4;
+  --obs-white5: #969696;
+  --obs-black1: #0A0A0A;
+  --obs-black2: #1F1F1F;
+  --obs-black3: #414141;
+  --obs-black4: #646464;
+  --obs-black5: #828282;
+
+  /* Control metrics not carried in the §2 semantic block.
+   * QSS: --input_padding (L193) and --input_text_padding (L194). */
+  --obs-input-padding:      4px;   /* --input_padding */
+  --obs-input-text-padding: 8px;   /* --input_text_padding */
+
+  /* Live meter level, written by the app as a percentage (0-100%).
+   * QSS: VolumeMeter reads its level at paint time, not from a variable. */
+  --obs-meter-level: 0%;
+
+  /* Checkbox indicator artwork.
+   * QSS: QCheckBox::indicator:* (Yami.obt L2070-2116) using
+   *      theme:Yami/checkbox_*.svg — inlined verbatim from
+   *      frontend/data/themes/Yami/. Stroke colours are hard-coded in the
+   *      SVG: #B0AFB3 normal, #FFFFFF focus, #4A4C53 disabled. */
+  --obs-checkbox-unchecked:
+    url("data:image/svg+xml,%3Csvg%20version='1.1'%20x='0'%20y='0'%20width='128'%20height='128'%20viewBox='0%200%20128%20128'%3E%3Cg%3E%3Cpath%20fill='none'%20stroke='%23B0AFB3'%20stroke-width='8'%20stroke-miterlimit='10'%20d='M115.579,104.737%20c0,6.221-5.012,11.263-11.192,11.263H22.771c-6.182,0-11.192-5.042-11.192-11.263V23.263c0-6.221,5.01-11.263,11.192-11.263h81.615%20c6.181,0,11.192,5.042,11.192,11.263V104.737z'/%3E%3Cpath%20display='none'%20fill='%23B0AFB3'%20d='M90,77.91C90,84.587,84.587,90,77.91,90H50.09C43.413,90,38,84.587,38,77.91V50.09%20C38,43.413,43.413,38,50.09,38h27.82C84.587,38,90,43.413,90,50.09V77.91z'/%3E%3C/g%3E%3C/svg%3E");
+  --obs-checkbox-unchecked-focus:
+    url("data:image/svg+xml,%3Csvg%20version='1.1'%20x='0'%20y='0'%20width='128'%20height='128'%20viewBox='0%200%20128%20128'%3E%3Cg%3E%3Cpath%20fill='none'%20stroke='%23FFFFFF'%20stroke-width='12'%20stroke-miterlimit='10'%20d='%20M115.579,104.737c0,6.221-5.012,11.263-11.192,11.263H22.771c-6.182,0-11.192-5.042-11.192-11.263V23.263%20c0-6.221,5.01-11.263,11.192-11.263h81.615c6.181,0,11.192,5.042,11.192,11.263V104.737z'/%3E%3C/g%3E%3C/svg%3E");
+  --obs-checkbox-unchecked-disabled:
+    url("data:image/svg+xml,%3Csvg%20version='1.1'%20x='0'%20y='0'%20width='128'%20height='128'%20viewBox='0%200%20128%20128'%3E%3Cg%3E%3Cpath%20fill='none'%20stroke='%234A4C53'%20stroke-width='8'%20stroke-miterlimit='10'%20d='M115.579,104.737%20c0,6.221-5.012,11.263-11.192,11.263H22.771c-6.182,0-11.192-5.042-11.192-11.263V23.263c0-6.221,5.01-11.263,11.192-11.263h81.615%20c6.181,0,11.192,5.042,11.192,11.263V104.737z'/%3E%3C/g%3E%3C/svg%3E");
+  --obs-checkbox-checked:
+    url("data:image/svg+xml,%3Csvg%20version='1.1'%20x='0px'%20y='0px'%20width='128px'%20height='128px'%20viewBox='0%200%20128%20128'%3E%3Cg%3E%3Cpath%20fill='none'%20stroke='%23B0AFB3'%20stroke-width='8'%20stroke-miterlimit='10'%20d='M115.579,104.736%20c0,6.222-5.013,11.264-11.192,11.264H22.771c-6.182,0-11.192-5.042-11.192-11.264V23.263c0-6.221,5.01-11.263,11.192-11.263h81.616%20c6.18,0,11.191,5.042,11.191,11.263L115.579,104.736L115.579,104.736z'/%3E%3C/g%3E%3Cg%3E%3Cline%20fill='none'%20stroke='%23B0AFB3'%20stroke-width='12'%20stroke-miterlimit='10'%20x1='29.213'%20y1='66.025'%20x2='54.362'%20y2='91.168'/%3E%3Cline%20fill='none'%20stroke='%23B0AFB3'%20stroke-width='12'%20stroke-miterlimit='10'%20x1='98.213'%20y1='38.12'%20x2='45.165'%20y2='91.168'/%3E%3C/g%3E%3C/svg%3E");
+  --obs-checkbox-checked-focus:
+    url("data:image/svg+xml,%3Csvg%20version='1.1'%20x='0'%20y='0'%20width='128'%20height='128'%20viewBox='0%200%20128%20128'%3E%3Cg%3E%3Cpath%20fill='none'%20stroke='%23FFFFFF'%20stroke-width='12'%20stroke-miterlimit='10'%20d='%20M115.579,104.737c0,6.221-5.012,11.263-11.192,11.263H22.771c-6.182,0-11.192-5.042-11.192-11.263V23.263%20c0-6.221,5.01-11.263,11.192-11.263h81.615c6.181,0,11.192,5.042,11.192,11.263V104.737z'/%3E%3C/g%3E%3Cg%3E%3Cline%20fill='none'%20stroke='%23FFFFFF'%20stroke-width='20'%20stroke-miterlimit='10'%20x1='29.213'%20y1='66.025'%20x2='54.362'%20y2='91.168'/%3E%3Cline%20fill='none'%20stroke='%23FFFFFF'%20stroke-width='20'%20stroke-miterlimit='10'%20x1='98.213'%20y1='38.12'%20x2='45.165'%20y2='91.168'/%3E%3C/g%3E%3C/svg%3E");
+  --obs-checkbox-checked-disabled:
+    url("data:image/svg+xml,%3Csvg%20version='1.1'%20x='0'%20y='0'%20width='128'%20height='128'%20viewBox='0%200%20128%20128'%3E%3Cg%3E%3Cpath%20id='Unchecked_1_'%20fill='none'%20stroke='%234A4C53'%20stroke-width='8'%20stroke-miterlimit='10'%20d='M115.579,104.737%20c0,6.221-5.012,11.263-11.192,11.263H22.771c-6.182,0-11.192-5.042-11.192-11.263V23.263c0-6.221,5.01-11.263,11.192-11.263h81.615c6.181,0,11.192,5.042,11.192,11.263V104.737z'/%3E%3C/g%3E%3Cg%3E%3Cline%20fill='none'%20stroke='%234A4C53'%20stroke-width='12'%20stroke-miterlimit='10'%20x1='29.213'%20y1='66.025'%20x2='54.362'%20y2='91.168'/%3E%3Cline%20fill='none'%20stroke='%234A4C53'%20stroke-width='12'%20stroke-miterlimit='10'%20x1='98.213'%20y1='38.12'%20x2='45.165'%20y2='91.168'/%3E%3C/g%3E%3C/svg%3E");
+
+  /* Chevron artwork.
+   * QSS: QComboBox::down-arrow (L1274), QSpinBox::up-arrow (L1430),
+   *      QSpinBox::down-arrow (L1437) using theme:Dark/{collapse,up,down}.svg.
+   *      Those SVGs hard-code fill="#fefefe" (#FEFEFE) — carried through as-is. */
+  --obs-icon-chevron-down:
+    url("data:image/svg+xml,%3Csvg%20height='16px'%20viewBox='0%200%2016%2016'%20width='16px'%20xmlns='http://www.w3.org/2000/svg'%3E%3Cpath%20d='m%2013.996094%205%20l%20-5.996094%206%20l%20-6.003906%20-6%20z%20m%200%200'%20fill='%23fefefe'/%3E%3C/svg%3E");
+  --obs-icon-chevron-up:
+    url("data:image/svg+xml,%3Csvg%20height='16px'%20viewBox='0%200%2016%2016'%20width='16px'%20xmlns='http://www.w3.org/2000/svg'%3E%3Cpath%20d='m%201%2011%20c%200%20-0.265625%200.105469%20-0.519531%200.292969%20-0.707031%20l%206%20-6%20c%200.390625%20-0.390625%201.023437%20-0.390625%201.414062%200%20l%206%206%20c%200.1875%200.1875%200.292969%200.441406%200.292969%200.707031%20s%20-0.105469%200.519531%20-0.292969%200.707031%20c%20-0.390625%200.390625%20-1.023437%200.390625%20-1.414062%200%20l%20-5.292969%20-5.292969%20l%20-5.292969%205.292969%20c%20-0.390625%200.390625%20-1.023437%200.390625%20-1.414062%200%20c%20-0.1875%20-0.1875%20-0.292969%20-0.441406%20-0.292969%20-0.707031%20z%20m%200%200'%20fill='%23fefefe'/%3E%3C/svg%3E");
+  --obs-icon-chevron-down-sm:
+    url("data:image/svg+xml,%3Csvg%20height='16px'%20viewBox='0%200%2016%2016'%20width='16px'%20xmlns='http://www.w3.org/2000/svg'%3E%3Cpath%20d='m%201%205%20c%200%20-0.265625%200.105469%20-0.519531%200.292969%20-0.707031%20c%200.390625%20-0.390625%201.023437%20-0.390625%201.414062%200%20l%205.292969%205.292969%20l%205.292969%20-5.292969%20c%200.390625%20-0.390625%201.023437%20-0.390625%201.414062%200%20c%200.1875%200.1875%200.292969%200.441406%200.292969%200.707031%20s%20-0.105469%200.519531%20-0.292969%200.707031%20l%20-6%206%20c%20-0.390625%200.390625%20-1.023437%200.390625%20-1.414062%200%20l%20-6%20-6%20c%20-0.1875%20-0.1875%20-0.292969%20-0.441406%20-0.292969%20-0.707031%20z%20m%200%200'%20fill='%23fefefe'/%3E%3C/svg%3E");
+}
+
+
+/* ==========================================================================
+ * 3. RESET / BASELINE
+ * QSS: QWidget (Yami.obt L590-597), QWidget:disabled (L599-601),
+ *      framed widgets (L650-657)
+ * ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+/* QSS: QWidget { alternate-background-color; color; selection-background-color;
+ *               selection-color; font-size; font-family } */
+.obs-app,
+.obs-root,
+body {
+  background-color: var(--obs-window-bg);
+  color: var(--obs-text);
+  font-family: var(--obs-font-family);
+  font-size: var(--obs-font-size);
+  font-weight: var(--obs-font-weight-normal);
+  line-height: normal;
+  accent-color: var(--obs-primary);
+}
+
+/* QSS: QWidget { selection-background-color: var(--primary); selection-color } */
+.obs-app ::selection,
+.obs-root ::selection {
+  background-color: var(--obs-selection-bg);
+  color: var(--obs-text-on-accent);
+}
+
+/* QSS: QWidget:disabled { color: var(--text_disabled) } */
+.obs-app :disabled,
+.obs-root :disabled,
+.obs-app [aria-disabled='true'],
+.obs-root [aria-disabled='true'] {
+  color: var(--obs-text-disabled);
+}
+
+/* QSS: * [frameShape="1".."6"] { border: 1px solid var(--bg_base) } */
+.obs-app [data-frame] {
+  border: 1px solid var(--obs-panel-bg);
+}
+
+/* Keyboard focus convention used throughout the theme:
+ * QSS: --highlight_width / --highlight_color (Yami.obt L127-128, L2603) */
+.obs-app :focus-visible,
+.obs-root :focus-visible {
+  outline: var(--obs-highlight-width) solid var(--obs-highlight-color);
+  outline-offset: 0;
+}
+
+.obs-app :focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* QSS: QMainWindow::separator (L615-625) is handled by .obs-splitter below. */
+.obs-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.obs-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+
+/* ==========================================================================
+ * 4. MENU BAR + MENUS
+ * QSS: QMenuBar (L608/661), QMenuBar::item (L717), QMenuBar::item:selected
+ *      (L722), QMenu (L609/744/780), QMenu::item (L756/766), QMenu::item:hover
+ *      (L811), QMenu::item:selected (L803), QMenu::item:focus (L818),
+ *      QMenu::item:selected:hover (L827), QMenu::item:disabled (L707),
+ *      QMenu::separator (L701)
+ * ========================================================================== */
+
+/* QSS: QMenuBar { background-color: var(--bg_window); spacing: var(--spacing_small) } */
+.obs-menubar {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  gap: var(--obs-spacing-small);
+  background-color: var(--obs-window-bg);
+  color: var(--obs-text);
+  user-select: none;
+}
+
+/* QSS: QMenuBar::item { background-color: transparent;
+ *                       padding: var(--padding_large) var(--padding_menubar) } */
+.obs-menubar-item {
+  display: inline-flex;
+  align-items: center;
+  background-color: transparent;
+  border: none;
+  border-radius: var(--obs-radius);
+  padding: var(--obs-padding-large) var(--obs-padding-menubar);
+  color: inherit;
+  font: inherit;
+  cursor: default;
+  white-space: nowrap;
+}
+
+/* QSS: QMenuBar::item:selected { background: var(--primary) } */
+.obs-menubar-item:hover,
+.obs-menubar-item:focus-visible,
+.obs-menubar-item.is-open,
+.obs-menubar-item[aria-expanded='true'] {
+  background: var(--obs-primary);
+  color: var(--obs-text-on-accent);
+}
+
+/* QSS: QMenu { background-color: var(--bg_window); border: 1px solid
+ *      var(--border_color); padding: var(--spacing_base) } */
+.obs-menu {
+  position: absolute;
+  z-index: 1000;
+  min-width: 160px;
+  background-color: var(--obs-menu-bg);
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+  padding: var(--obs-spacing-base);
+  outline: none;
+  user-select: none;
+}
+
+/* QSS: QMenu::item { padding: var(--padding_large) var(--padding_menu);
+ *      padding-right: 20px; border-radius: var(--border_radius);
+ *      color: var(--text); border: 1px solid transparent } */
+.obs-menu-item {
+  display: flex;
+  align-items: center;
+  padding: var(--obs-padding-large) var(--obs-padding-menu);
+  padding-right: 20px;
+  border: var(--obs-border-width) solid transparent;
+  border-radius: var(--obs-radius);
+  color: var(--obs-text);
+  cursor: default;
+  white-space: nowrap;
+}
+
+/* QSS: QMenu::item:hover { background: var(--grey4);
+ *                          border: 1px solid var(--grey3) } */
+.obs-menu-item:hover {
+  background: var(--obs-list-hover-bg);
+  border: var(--obs-border-width) solid var(--obs-list-hover-border);
+}
+
+/* QSS: QMenu::item:selected { background-color: var(--primary);
+ *                            border-color: var(--primary_light) } */
+.obs-menu-item.is-active,
+.obs-menu-item[aria-selected='true'] {
+  background-color: var(--obs-selection-bg);
+  border-color: var(--obs-selection-border);
+  color: var(--obs-text-on-accent);
+}
+
+/* QSS: QMenu::item:selected:hover { background: var(--primary_light);
+ *      border: 1px solid var(--primary_lighter) } */
+.obs-menu-item.is-active:hover,
+.obs-menu-item[aria-selected='true']:hover {
+  background: var(--obs-selection-hover-bg);
+  border: var(--obs-border-width) solid var(--obs-primary-lighter);
+  color: var(--obs-text);
+}
+
+/* QSS: QMenu::item:focus { border: 1px solid var(--white3) } */
+.obs-menu-item:focus-visible {
+  border: var(--obs-border-width) solid var(--obs-focus-border);
+  outline: none;
+}
+
+/* QSS: QMenu::item:disabled { color: var(--text_disabled); background: transparent } */
+.obs-menu-item.is-disabled,
+.obs-menu-item[aria-disabled='true'],
+.obs-menu-item:disabled {
+  color: var(--obs-text-disabled);
+  background: transparent;
+  border-color: transparent;
+  pointer-events: none;
+}
+
+/* QSS: QMenu::separator { background: var(--border_color); height: 1px;
+ *                         margin: var(--spacing_base) var(--spacing_large) } */
+.obs-menu-sep {
+  height: 1px;
+  margin: var(--obs-spacing-base) var(--obs-spacing-large);
+  background: var(--obs-border);
+  border: none;
+}
+
+/* QSS: no dedicated rule — Qt renders the shortcut right-aligned and dimmed.
+ * Mirrors QMenu::item:disabled colour + --font_small. */
+.obs-menu-shortcut {
+  margin-left: auto;
+  padding-left: var(--obs-padding-wide);
+  color: var(--obs-text-muted);
+  font-size: var(--obs-font-size-small);
+}
+
+
+/* ==========================================================================
+ * 5. TOOLBAR
+ * QSS: QToolBar (L1131), QToolBar::separator (L728), QToolBarExtension (L1138)
+ * ========================================================================== */
+
+/* QSS: QToolBar { background-color: transparent; border: none;
+ *                 margin: var(--spacing_base) 0px; spacing: var(--spacing_base) } */
+.obs-toolbar {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--obs-spacing-base);
+  margin: var(--obs-spacing-base) 0;
+  padding: 0;
+  background-color: transparent;
+  border: none;
+}
+
+/* QSS: QToolBar::separator { background: var(--border_color); width: 1px;
+ *                            margin: 0px var(--spacing_base) 0px } */
+.obs-toolbar > hr,
+.obs-toolbar > .obs-menu-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 var(--obs-spacing-base);
+  background: var(--obs-border);
+  border: none;
+}
+
+
+/* ==========================================================================
+ * 6. SPLITTERS / SEPARATORS
+ * QSS: QMainWindow::separator (L615-625).
+ * NOTE: QSplitter::handle has NO rule in Yami.obt — it was drawn by the base
+ *       Qt style (Fusion PM_SplitterWidth = 4px). Reproduced here at 4px.
+ * ========================================================================== */
+
+/* QSS: QMainWindow::separator { background: transparent; width/height:
+ *      var(--spacing_large); margin: 0px } */
+.obs-splitter {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  margin: 0;
+  padding: 0;
+  touch-action: none;
+}
+
+/* QSS: QMainWindow::separator:hover { border: 1px solid var(--separator_hover);
+ *      margin: 1px }
+ * `outline` reproduces the 1px inset border without shifting layout. */
+.obs-splitter:hover,
+.obs-splitter:focus-visible,
+.obs-splitter.is-active {
+  outline: var(--obs-border-width) solid var(--obs-separator-hover);
+  outline-offset: -1px;
+}
+
+/* Vertical divider (side-by-side panes) — 4px wide, col-resize. */
+.obs-splitter-v {
+  width: var(--obs-spacing-large);
+  min-width: var(--obs-spacing-large);
+  cursor: col-resize;
+}
+
+/* Horizontal divider (stacked panes) — 4px tall, row-resize. */
+.obs-splitter-h {
+  height: var(--obs-spacing-large);
+  min-height: var(--obs-spacing-large);
+  cursor: row-resize;
+}
+
+
+/* ==========================================================================
+ * 7. STATUS BAR
+ * QSS: QStatusBar (L607), OBSBasicStatusBar (L974), StatusBarWidget > QFrame
+ *      (L980), QStatusBar::item (L1984)
+ * ========================================================================== */
+
+/* QSS: OBSBasicStatusBar { margin-top: var(--spacing_large);
+ *      border-top: 1px solid var(--border_color); background: var(--bg_base) } */
+.obs-statusbar {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  margin-top: var(--obs-spacing-large);
+  border-top: var(--obs-border-width) solid var(--obs-border);
+  background: var(--obs-panel-bg);
+  color: var(--obs-text);
+  font-size: var(--obs-font-size-small);
+  user-select: none;
+}
+
+/* QSS: StatusBarWidget > QFrame { border: 0px solid var(--border_color);
+ *      border-left-width: 1px; padding: 0px var(--padding_xlarge)
+ *      var(--padding_small) } */
+.obs-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--obs-spacing-base);
+  border: 0 solid var(--obs-border);
+  border-left-width: var(--obs-border-width);
+  padding: 0 var(--obs-padding-xlarge) var(--obs-padding-small);
+  white-space: nowrap;
+}
+
+.obs-status-item:first-child {
+  border-left-width: 0;
+}
+
+/* QSS: QStatusBar::item { border: none } */
+.obs-statusbar > * {
+  border-top: none;
+  border-bottom: none;
+}
+
+
+/* ==========================================================================
+ * 8. DOCKS / PANELS
+ * QSS: OBSDock > QWidget (L878), QDockWidget (L921), QDockWidget::title (L930),
+ *      QDockWidget::close-button / ::float-button (L939-960)
+ * ========================================================================== */
+
+/* QSS: OBSDock > QWidget { background: var(--bg_base);
+ *      border-bottom-left/right-radius: 4px; border: 1px solid var(--border_color) }
+ *      + QDockWidget::title top radii => 4px all round. */
+.obs-dock {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--obs-panel-bg);
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+  overflow: hidden;
+}
+
+/* QSS: QDockWidget::title { text-align: left; background-color: var(--grey5);
+ *      border: 1px solid var(--grey4); padding: var(--padding_base)
+ *      var(--padding_large); border-top-left/right-radius: 4px }
+ *      + QDockWidget { font-size: var(--font_small); font-weight: bold;
+ *                      color: var(--text_light) } */
+.obs-dock-title {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-spacing-base);
+  flex: 0 0 auto;
+  text-align: left;
+  background-color: var(--obs-dock-title-bg);
+  border: var(--obs-border-width) solid var(--obs-dock-title-border);
+  border-top-left-radius: var(--obs-radius);
+  border-top-right-radius: var(--obs-radius);
+  padding: var(--obs-padding-base) var(--obs-padding-large);
+  font-size: var(--obs-font-size-small);
+  font-weight: var(--obs-font-weight-bold);
+  color: var(--obs-text-light);
+  user-select: none;
+}
+
+.obs-dock-title-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obs-dock-buttons {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--obs-spacing-small);
+  margin-right: 1px;
+}
+
+/* QSS: QDockWidget::close-button, QDockWidget::float-button { border: none;
+ *      border-radius: var(--border_radius); background: transparent;
+ *      margin-right: 1px; min-width/min-height: var(--icon_base);
+ *      icon-size: var(--icon_base); padding: var(--padding_base) }
+ *      :hover { background: var(--button_bg_hover) }
+ *      :pressed { background: var(--button_bg_down) } */
+.obs-dock-buttons > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--obs-icon);
+  min-height: var(--obs-icon);
+  padding: var(--obs-padding-base);
+  border: none;
+  border-radius: var(--obs-radius);
+  background: transparent;
+  color: var(--obs-text-light);
+  cursor: default;
+}
+
+.obs-dock-buttons > button :is(svg, img) {
+  width: var(--obs-icon);
+  height: var(--obs-icon);
+}
+
+.obs-dock-buttons > button:hover {
+  background: var(--obs-button-bg-hover);
+}
+
+.obs-dock-buttons > button:active {
+  background: var(--obs-button-bg-down);
+}
+
+/* QSS: OBSDock > QWidget { background: var(--bg_base);
+ *      border-bottom-left/right-radius: var(--border_radius) } */
+.obs-dock-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  background: var(--obs-panel-bg);
+  border-bottom-left-radius: var(--obs-radius);
+  border-bottom-right-radius: var(--obs-radius);
+  padding: var(--obs-padding-large);
+}
+
+
+/* ==========================================================================
+ * 9. BUTTONS
+ * QSS: QPushButton (L1494-1548), .button-primary (L429-443),
+ *      QToolButton (L1550-1602), .btn-mute / .btn-monitor (L1695-1785)
+ * ========================================================================== */
+
+/* QSS: QPushButton { background-color: var(--button_bg); color: var(--text);
+ *      border: 1px solid var(--button_border); border-radius: var(--border_radius);
+ *      height: var(--input_height); margin-top/bottom: var(--spacing_input);
+ *      padding: var(--input_padding) var(--padding_wide);
+ *      icon-size: var(--icon_base); outline: none } */
+.obs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--obs-spacing-base);
+  height: var(--obs-control-row-height);
+  min-height: var(--obs-control-row-height);
+  margin: var(--obs-spacing-base) 0;
+  padding: var(--obs-padding-large) var(--obs-padding-wide);
+  background-color: var(--obs-button-bg);
+  color: var(--obs-text);
+  border: var(--obs-border-width) solid var(--obs-button-border);
+  border-radius: var(--obs-radius);
+  font-family: inherit;
+  font-size: var(--obs-font-size);
+  font-weight: var(--obs-font-weight-normal);
+  line-height: 1;
+  outline: none;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.obs-btn :is(svg, img) {
+  width: var(--obs-icon);
+  height: var(--obs-icon);
+}
+
+/* QSS: QPushButton:hover { background-color: var(--button_bg_hover) }
+ *      QPushButton:hover, QPushButton:focus { border-color: var(--button_border_hover) } */
+.obs-btn:hover,
+.obs-btn:focus-visible {
+  background-color: var(--obs-button-bg-hover);
+  border-color: var(--obs-button-border-hover);
+}
+
+/* QSS: QPushButton:pressed, QPushButton:pressed:hover
+ *      { background-color: var(--button_bg_down);
+ *        border-color: var(--button_border) } */
+.obs-btn:active {
+  background-color: var(--obs-button-bg-down);
+  border-color: var(--obs-button-border);
+}
+
+/* QSS: QPushButton:checked { background-color: var(--primary);
+ *      border-color: var(--primary_light) }
+ *      :checked:hover/focus { border-color: var(--primary_lighter) } */
+.obs-btn.toggled,
+.obs-btn[aria-pressed='true'] {
+  background-color: var(--obs-primary);
+  border-color: var(--obs-primary-light);
+  color: var(--obs-text-on-accent);
+}
+
+.obs-btn.toggled:hover,
+.obs-btn.toggled:focus-visible,
+.obs-btn[aria-pressed='true']:hover,
+.obs-btn[aria-pressed='true']:focus-visible {
+  background-color: var(--obs-primary);
+  border-color: var(--obs-primary-lighter);
+}
+
+/* QSS: QPushButton:disabled { background-color: var(--button_bg_disabled);
+ *      border-color: var(--button_border) } */
+.obs-btn:disabled,
+.obs-btn[disabled],
+.obs-btn.is-disabled {
+  background-color: var(--obs-button-bg-disabled);
+  border-color: var(--obs-button-border);
+  color: var(--obs-text-disabled);
+  pointer-events: none;
+}
+
+/* QSS: QPushButton::flat { background-color: var(--button_bg) } */
+.obs-btn.flat {
+  background-color: var(--obs-button-bg);
+  border-color: transparent;
+}
+
+.obs-btn.flat:hover {
+  background-color: var(--obs-button-bg-hover);
+}
+
+.obs-btn.flat:active {
+  background-color: var(--obs-button-bg-down);
+}
+
+/* QSS: .button-primary { background-color: var(--primary_dark);
+ *      border-color: var(--primary); outline: none }
+ *      :hover,:focus { background-color: var(--primary);
+ *                      border-color: var(--white3) }
+ *      :hover { border-color: var(--primary_light) } */
+.obs-btn.primary {
+  background-color: var(--obs-primary-dark);
+  border-color: var(--obs-primary);
+  color: var(--obs-text-on-accent);
+}
+
+.obs-btn.primary:hover,
+.obs-btn.primary:focus-visible {
+  background-color: var(--obs-primary);
+  border-color: var(--obs-focus-border);
+}
+
+.obs-btn.primary:hover {
+  border-color: var(--obs-primary-light);
+}
+
+.obs-btn.primary:active {
+  background-color: var(--obs-primary-dark);
+  border-color: var(--obs-primary);
+}
+
+/* NOT IN QSS: the default Yami theme has no generic destructive button.
+ * Derived from the .bg-danger / .text-danger / meter red tokens so the
+ * affordance exists without inventing colours outside the palette. */
+.obs-btn.danger {
+  background-color: var(--obs-error-surface);
+  border-color: var(--obs-error);
+  color: var(--obs-text-on-accent);
+}
+
+.obs-btn.danger:hover,
+.obs-btn.danger:focus-visible {
+  background-color: var(--obs-error);
+  border-color: var(--obs-error-bright);
+}
+
+.obs-btn.danger:active {
+  background-color: var(--obs-red4);
+  border-color: var(--obs-error);
+}
+
+.obs-btn.danger:disabled,
+.obs-btn.danger[disabled] {
+  background-color: var(--obs-button-bg-disabled);
+  border-color: var(--obs-button-border);
+  color: var(--obs-text-disabled);
+}
+
+/* NOT IN QSS: generic success button, derived from the green tokens
+ * (mirrors .bg-success / .text-success and the meter nominal ramp). */
+.obs-btn.success {
+  background-color: var(--obs-success-surface);
+  border-color: var(--obs-success);
+  color: var(--obs-text-on-accent);
+}
+
+.obs-btn.success:hover,
+.obs-btn.success:focus-visible {
+  background-color: var(--obs-green4);
+  border-color: var(--obs-success-bright);
+}
+
+.obs-btn.success:active {
+  background-color: var(--obs-green5);
+  border-color: var(--obs-success);
+}
+
+.obs-btn.success:disabled,
+.obs-btn.success[disabled] {
+  background-color: var(--obs-button-bg-disabled);
+  border-color: var(--obs-button-border);
+  color: var(--obs-text-disabled);
+}
+
+/* QSS: QToolButton, .btn-tool { background-color: var(--button_bg);
+ *      padding: var(--padding_base); margin: 0px; border: 1px solid
+ *      var(--button_border); border-radius: var(--border_radius);
+ *      icon-size: var(--icon_base) } */
+.obs-toolbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--obs-spacing-base);
+  height: var(--obs-control-row-height);
+  min-height: var(--obs-control-row-height);
+  margin: 0;
+  padding: var(--obs-padding-base);
+  background-color: var(--obs-button-bg);
+  color: var(--obs-text);
+  border: var(--obs-border-width) solid var(--obs-button-border);
+  border-radius: var(--obs-radius);
+  font: inherit;
+  outline: none;
+  cursor: default;
+  user-select: none;
+}
+
+.obs-toolbtn :is(svg, img) {
+  width: var(--obs-icon);
+  height: var(--obs-icon);
+}
+
+/* QSS: QToolButton:hover, QToolButton:focus
+ *      { border-color: var(--button_border);
+ *        background-color: var(--button_bg_hover) } */
+.obs-toolbtn:hover,
+.obs-toolbtn:focus-visible {
+  border-color: var(--obs-button-border);
+  background-color: var(--obs-button-bg-hover);
+}
+
+/* QSS: QToolButton:checked { background-color: var(--primary);
+ *      border-color: var(--primary_light) }
+ *      :checked:hover/focus { border-color: var(--primary_lighter) } */
+.obs-toolbtn.toggled,
+.obs-toolbtn[aria-pressed='true'] {
+  background-color: var(--obs-primary);
+  border-color: var(--obs-primary-light);
+  color: var(--obs-text-on-accent);
+}
+
+.obs-toolbtn.toggled:hover,
+.obs-toolbtn.toggled:focus-visible,
+.obs-toolbtn[aria-pressed='true']:hover {
+  border-color: var(--obs-primary-lighter);
+}
+
+/* QSS: QToolButton:pressed { background-color: var(--button_bg_down);
+ *      border-color: var(--button_border) } */
+.obs-toolbtn:active {
+  background-color: var(--obs-button-bg-down);
+  border-color: var(--obs-button-border);
+}
+
+/* QSS: QToolButton:disabled { background-color: var(--button_bg_disabled);
+ *      border-color: transparent } */
+.obs-toolbtn:disabled,
+.obs-toolbtn[disabled],
+.obs-toolbtn.is-disabled {
+  background-color: var(--obs-button-bg-disabled);
+  border-color: transparent;
+  color: var(--obs-text-disabled);
+  pointer-events: none;
+}
+
+/* QSS: .btn-mute, .btn-monitor { width/height: var(--icon_small);
+ *      background-color: transparent; padding: var(--padding_base_border);
+ *      margin: 0px var(--spacing_small); border: var(--highlight_width) solid
+ *      transparent; border-radius: var(--border_radius); icon-size: var(--icon_small) }
+ *      :hover { background-color: var(--button_bg_hover) }
+ *      :pressed { background-color: var(--button_bg_down) } */
+.obs-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--obs-icon-sm) + (2 * 3px) + (2 * var(--obs-highlight-width)));
+  height: calc(var(--obs-icon-sm) + (2 * 3px) + (2 * var(--obs-highlight-width)));
+  margin: 0 var(--obs-spacing-small);
+  padding: 3px;
+  background-color: transparent;
+  color: var(--obs-text);
+  border: var(--obs-highlight-width) solid transparent;
+  border-radius: var(--obs-radius);
+  font: inherit;
+  outline: none;
+  cursor: default;
+}
+
+.obs-icon-btn :is(svg, img) {
+  width: var(--obs-icon-sm);
+  height: var(--obs-icon-sm);
+}
+
+.obs-icon-btn:hover,
+.obs-icon-btn:focus-visible {
+  background-color: var(--obs-button-bg-hover);
+  border-color: transparent;
+}
+
+.obs-icon-btn:active {
+  background-color: var(--obs-button-bg-down);
+}
+
+/* NOT IN QSS: Qt's .btn-mute/.btn-monitor signal state by swapping the icon;
+ * the web port has no icon swap, so the toggled state is shown with the
+ * accent fill used by every other checked control. */
+.obs-icon-btn.toggled,
+.obs-icon-btn[aria-pressed='true'],
+.obs-icon-btn.is-checked {
+  background-color: var(--obs-primary);
+  border-color: var(--obs-primary-light);
+  color: var(--obs-text-on-accent);
+}
+
+.obs-icon-btn:disabled,
+.obs-icon-btn[disabled] {
+  color: var(--obs-text-disabled);
+  background-color: transparent;
+  pointer-events: none;
+}
+
+
+/* ==========================================================================
+ * 10. FORM CONTROLS
+ * QSS: QLineEdit/QTextEdit/QPlainTextEdit (L1308-1344), QComboBox (L1231-1304),
+ *      QSpinBox/QDoubleSpinBox (L1348-1442), QSlider (L1606-1679),
+ *      QCheckBox::indicator (L2070-2116), QLabel (L629), .subtitle (L423)
+ * ========================================================================== */
+
+/* QSS: QLineEdit, QTextEdit, QPlainTextEdit { background-color: var(--input_bg);
+ *      border-radius: var(--border_radius); padding: var(--input_padding)
+ *      var(--input_text_padding); border: 1px solid var(--input_bg);
+ *      height: var(--input_height) } */
+.obs-input {
+  height: var(--obs-control-row-height);
+  min-height: var(--obs-control-row-height);
+  margin: var(--obs-spacing-base) 0;
+  padding: var(--obs-input-padding) var(--obs-input-text-padding);
+  background-color: var(--obs-input-bg);
+  color: var(--obs-text);
+  border: var(--obs-border-width) solid var(--obs-input-bg);
+  border-radius: var(--obs-radius);
+  font-family: inherit;
+  font-size: var(--obs-font-size);
+  outline: none;
+}
+
+textarea.obs-input {
+  height: auto;
+  min-height: calc(var(--obs-control-row-height) * 2);
+  resize: vertical;
+}
+
+.obs-input::placeholder {
+  /* QSS: PlaceholderText is NOT themed — see spec §6.2. Muted is the closest
+   * themed equivalent and is used here for consistency. */
+  color: var(--obs-text-muted);
+}
+
+/* QSS: QLineEdit:hover { background-color: var(--input_bg_hover);
+ *      border-color: var(--input_border_hover) } */
+.obs-input:hover {
+  background-color: var(--obs-input-bg-hover);
+  border-color: var(--obs-input-border-hover);
+}
+
+/* QSS: QLineEdit:focus { background-color: var(--input_bg_focus);
+ *      border-color: var(--input_border_focus) } */
+.obs-input:focus,
+.obs-input:focus-visible {
+  background-color: var(--obs-input-bg-focus);
+  border-color: var(--obs-border-focus);
+  outline: none;
+}
+
+/* QSS: QLineEdit:read-only, :read-only:hover, :read-only:focus
+ *      { background-color: transparent; border-color: var(--input_bg) } */
+.obs-input[readonly],
+.obs-input[readonly]:hover,
+.obs-input[readonly]:focus {
+  background-color: transparent;
+  border-color: var(--obs-input-bg);
+}
+
+.obs-input:disabled,
+.obs-input[disabled] {
+  color: var(--obs-text-disabled);
+  background-color: var(--obs-input-bg);
+  border-color: var(--obs-input-bg);
+  pointer-events: none;
+}
+
+/* QSS: QComboBox, QDateTimeEdit { background-color: var(--input_bg);
+ *      border: 1px solid var(--input_bg); border-radius: var(--border_radius);
+ *      padding: var(--input_padding) var(--input_text_padding);
+ *      height: var(--input_height) }
+ *      ::drop-down { border: none; border-left: 1px solid var(--grey6);
+ *                    width: var(--input_height) }
+ *      ::down-arrow { image: url(theme:Dark/collapse.svg) } */
+.obs-select {
+  height: var(--obs-control-row-height);
+  min-height: var(--obs-control-row-height);
+  margin: var(--obs-spacing-base) 0;
+  padding: var(--obs-input-padding) var(--obs-input-text-padding);
+  padding-right: calc(var(--obs-control-height) + var(--obs-input-text-padding));
+  background-color: var(--obs-input-bg);
+  color: var(--obs-text);
+  border: var(--obs-border-width) solid var(--obs-input-bg);
+  border-radius: var(--obs-radius);
+  font-family: inherit;
+  font-size: var(--obs-font-size);
+  outline: none;
+  cursor: default;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image:
+    var(--obs-icon-chevron-down),
+    linear-gradient(to right,
+      transparent 0,
+      transparent calc(100% - 23px),
+      var(--obs-grey6) calc(100% - 23px),
+      var(--obs-grey6) calc(100% - 22px),
+      transparent calc(100% - 22px),
+      transparent 100%);
+  background-repeat: no-repeat, no-repeat;
+  /* QSS: QComboBox::down-arrow { qproperty-alignment: AlignTop; width: 100% }
+   * inside a 22px-wide ::drop-down cell -> 16px glyph at the top of the cell. */
+  background-position: right 3px top 0, 0 0;
+  background-size: var(--obs-icon) var(--obs-icon), 100% 100%;
+}
+
+/* QSS: QComboBox:hover, QComboBox:focus
+ *      { border-color: var(--input_border_hover) }
+ *      QComboBox:on, QComboBox:editable:focus
+ *      { background-color: var(--input_bg_focus);
+ *        border-color: var(--input_border_focus) }
+ *      QComboBox:on { border-bottom-left/right-radius: 0 } */
+.obs-select:hover,
+.obs-select:focus-visible {
+  border-color: var(--obs-input-border-hover);
+  outline: none;
+}
+
+.obs-select:focus,
+.obs-select.is-open {
+  background-color: var(--obs-input-bg-focus);
+  border-color: var(--obs-border-focus);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.obs-select:disabled,
+.obs-select[disabled] {
+  color: var(--obs-text-disabled);
+  border-color: var(--obs-input-bg);
+  pointer-events: none;
+}
+
+.obs-select option {
+  background-color: var(--obs-panel-bg);
+  color: var(--obs-text);
+}
+
+/* QSS: QSpinBox, QDoubleSpinBox { background-color: var(--input_bg);
+ *      border: 1px solid var(--input_bg); border-radius: var(--border_radius);
+ *      padding: var(--input_padding) var(--padding_base) var(--input_padding)
+ *      var(--input_text_padding); height: var(--input_height);
+ *      min-width: var(--spinbox_min_width) }
+ *      ::up-button/::down-button { width: var(--input_height);
+ *        height: var(--spinbox_button_height);
+ *        border-left: 1px solid var(--grey6) } */
+.obs-spin {
+  display: inline-grid;
+  grid-template-columns: 1fr auto;
+  /* QSS: ::up-button / ::down-button { height: var(--spinbox_button_height) } */
+  grid-template-rows: var(--obs-spinbox-button-height) var(--obs-spinbox-button-height);
+  height: var(--obs-control-row-height);
+  min-height: var(--obs-control-row-height);
+  min-width: var(--obs-spinbox-min-width);
+  margin: var(--obs-spacing-base) 0;
+  background-color: var(--obs-input-bg);
+  border: var(--obs-border-width) solid var(--obs-input-bg);
+  border-radius: var(--obs-radius);
+  overflow: hidden;
+}
+
+.obs-spin > input {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  min-width: 0;
+  height: 100%;
+  padding: var(--obs-input-padding) var(--obs-padding-base)
+           var(--obs-input-padding) var(--obs-input-text-padding);
+  background: transparent;
+  color: var(--obs-text);
+  border: none;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: var(--obs-font-size);
+  outline: none;
+  -webkit-appearance: none;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.obs-spin > input::-webkit-outer-spin-button,
+.obs-spin > input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.obs-spin > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--obs-control-height);
+  padding: 0;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: var(--obs-icon) var(--obs-icon);
+  border: none;
+  border-left: var(--obs-border-width) solid var(--obs-grey6);
+  border-radius: 0;
+  color: var(--obs-text);
+  cursor: default;
+}
+
+.obs-spin > button:first-of-type {
+  grid-column: 2;
+  grid-row: 1;
+  background-image: var(--obs-icon-chevron-up);
+  border-top-right-radius: var(--obs-radius-sm);
+  border-bottom: var(--obs-border-width) solid transparent;
+}
+
+.obs-spin > button:last-of-type {
+  grid-column: 2;
+  grid-row: 2;
+  background-image: var(--obs-icon-chevron-down-sm);
+  border-top: var(--obs-border-width) solid var(--obs-grey6);
+  border-bottom-right-radius: var(--obs-radius-sm);
+}
+
+/* QSS: QSpinBox:hover, QDoubleSpinBox:hover
+ *      { background-color: var(--input_bg_hover);
+ *        border-color: var(--input_border_hover) }
+ *      QSpinBox:focus, QDoubleSpinBox:focus
+ *      { background-color: var(--input_bg_focus);
+ *        border-color: var(--input_border_focus) } */
+.obs-spin:hover {
+  background-color: var(--obs-input-bg-hover);
+  border-color: var(--obs-input-border-hover);
+}
+
+.obs-spin:focus-within {
+  background-color: var(--obs-input-bg-focus);
+  border-color: var(--obs-border-focus);
+}
+
+/* QSS: QSpinBox::up-button:hover { background-color: var(--button_bg_hover) }
+ *      :pressed { background-color: var(--button_bg_down) }
+ *      :disabled, :off { background-color: var(--button_bg_disabled) } */
+.obs-spin > button:hover {
+  background-color: var(--obs-button-bg-hover);
+}
+
+.obs-spin > button:active {
+  background-color: var(--obs-button-bg-down);
+}
+
+.obs-spin > button:disabled,
+.obs-spin > button[disabled] {
+  background-color: var(--obs-button-bg-disabled);
+  pointer-events: none;
+}
+
+.obs-spin:has(input:disabled),
+.obs-spin.is-disabled {
+  color: var(--obs-text-disabled);
+  border-color: var(--obs-input-bg);
+}
+
+/* QSS: QCheckBox, QGroupBox, QMenuBar, QRadioButton
+ *      { spacing: var(--spacing_small) }
+ *      QCheckBox { background: transparent; margin-top/bottom: var(--spacing_input) }
+ *      QCheckBox::indicator { width/height: var(--icon_base);
+ *                             margin-right: var(--spacing_large) } */
+.obs-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  margin: var(--obs-spacing-base) 0;
+  background: transparent;
+  color: var(--obs-text);
+  font-family: inherit;
+  font-size: var(--obs-font-size);
+  cursor: default;
+  user-select: none;
+}
+
+/* QSS: QCheckBox::indicator stages (L2082-2116), using theme:Yami/*.svg */
+.obs-checkbox > input[type='checkbox'],
+input.obs-checkbox {
+  flex: 0 0 auto;
+  width: var(--obs-icon);
+  height: var(--obs-icon);
+  margin: 0 var(--obs-spacing-large) 0 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--obs-radius);
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: var(--obs-icon) var(--obs-icon);
+  background-image: var(--obs-checkbox-unchecked);
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  outline: none;
+  cursor: default;
+}
+
+/* QSS: QCheckBox::indicator:unchecked:hover
+ *      { image: url(theme:Yami/checkbox_unchecked_focus.svg) } */
+.obs-checkbox > input[type='checkbox']:hover,
+input.obs-checkbox:hover,
+.obs-checkbox > input[type='checkbox']:focus-visible,
+input.obs-checkbox:focus-visible {
+  background-image: var(--obs-checkbox-unchecked-focus);
+}
+
+/* QSS: QCheckBox::indicator:checked
+ *      { image: url(theme:Yami/checkbox_checked.svg) } */
+.obs-checkbox > input[type='checkbox']:checked,
+input.obs-checkbox:checked {
+  background-image: var(--obs-checkbox-checked);
+}
+
+/* QSS: QCheckBox::indicator:checked:hover
+ *      { image: url(theme:Yami/checkbox_checked_focus.svg) } */
+.obs-checkbox > input[type='checkbox']:checked:hover,
+input.obs-checkbox:checked:hover,
+.obs-checkbox > input[type='checkbox']:checked:focus-visible,
+input.obs-checkbox:checked:focus-visible {
+  background-image: var(--obs-checkbox-checked-focus);
+}
+
+/* QSS: QCheckBox::indicator:unchecked:disabled
+ *      { image: url(theme:Yami/checkbox_unchecked_disabled.svg) } */
+.obs-checkbox > input[type='checkbox']:disabled,
+input.obs-checkbox:disabled {
+  background-image: var(--obs-checkbox-unchecked-disabled);
+  cursor: default;
+}
+
+/* QSS: QCheckBox::indicator:checked:disabled
+ *      { image: url(theme:Yami/checkbox_checked_disabled.svg) } */
+.obs-checkbox > input[type='checkbox']:checked:disabled,
+input.obs-checkbox:checked:disabled {
+  background-image: var(--obs-checkbox-checked-disabled);
+}
+
+/* QSS: QLabel, QGroupBox, QCheckBox { background: transparent } + QWidget:disabled */
+.obs-checkbox:has(input:disabled),
+.obs-checkbox.is-disabled {
+  color: var(--obs-text-disabled);
+}
+
+/* --------------------------------------------------------------------------
+ * .obs-radio — NOT IN QSS.
+ * Yami.obt styles only `background` and `spacing` for QRadioButton (L662);
+ * there is NO ::indicator rule anywhere in the repo, so Qt drew the radio with
+ * the base style (Fusion on Linux) from the QPalette:
+ *   Base #272A33 / Text #FFFFFF / Highlight #284CB8 / Button #3C404D.
+ * The artwork below re-creates that Fusion look using the themed palette.
+ * ------------------------------------------------------------------------ */
+.obs-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  margin: var(--obs-spacing-base) 0;
+  background: transparent;
+  color: var(--obs-text);
+  font-family: inherit;
+  font-size: var(--obs-font-size);
+  cursor: default;
+  user-select: none;
+}
+
+.obs-radio > input[type='radio'],
+input.obs-radio {
+  flex: 0 0 auto;
+  width: var(--obs-icon);
+  height: var(--obs-icon);
+  margin: 0 var(--obs-spacing-large) 0 0;
+  padding: 0;
+  border: var(--obs-border-width) solid var(--obs-white4);
+  border-radius: 50%;
+  background-color: transparent;
+  background-image: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  outline: none;
+  cursor: default;
+}
+
+.obs-radio > input[type='radio']:hover,
+input.obs-radio:hover,
+.obs-radio > input[type='radio']:focus-visible,
+input.obs-radio:focus-visible {
+  border-color: var(--obs-white1);
+}
+
+.obs-radio > input[type='radio']:checked,
+input.obs-radio:checked {
+  border-color: var(--obs-primary);
+  background-image: radial-gradient(circle,
+    var(--obs-primary) 0,
+    var(--obs-primary) 3px,
+    transparent 3px,
+    transparent 100%);
+}
+
+.obs-radio > input[type='radio']:disabled,
+input.obs-radio:disabled {
+  border-color: var(--obs-grey1);
+  background-image: none;
+  cursor: default;
+}
+
+.obs-radio > input[type='radio']:checked:disabled,
+input.obs-radio:checked:disabled {
+  border-color: var(--obs-grey1);
+  background-image: radial-gradient(circle,
+    var(--obs-grey1) 0,
+    var(--obs-grey1) 3px,
+    transparent 3px,
+    transparent 100%);
+}
+
+.obs-radio:has(input:disabled),
+.obs-radio.is-disabled {
+  color: var(--obs-text-disabled);
+}
+
+/* QSS: QSlider::groove (L1606-1618) { background-color: var(--grey4);
+ *      border: none; border-radius: 2px } :horizontal { height: 4px }
+ *      ::sub-page:horizontal / ::add-page:vertical
+ *      { background-color: var(--blue2); border-radius: 2px }
+ *      ::handle { background-color: var(--white1); border-radius: 4px }
+ *      ::handle:horizontal { height: 10px; width: 20px; margin: -3px 0 }
+ *      ::handle:hover { background-color: var(--white4) }
+ *      ::handle:pressed { background-color: var(--white3) }
+ *      ::handle:disabled { background-color: var(--white5) }
+ * The filled portion is driven by --obs-slider-fill (0-100%), set by the app. */
+.obs-slider,
+.obs-range {
+  --obs-slider-fill: 0%;
+  width: 100%;
+  height: var(--obs-control-row-height);
+  margin: var(--obs-spacing-base) 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  cursor: default;
+}
+
+.obs-slider::-webkit-slider-runnable-track,
+.obs-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border: none;
+  border-radius: var(--obs-radius-sm);
+  background-image: linear-gradient(to right,
+    var(--obs-blue2) 0,
+    var(--obs-blue2) var(--obs-slider-fill),
+    var(--obs-grey4) var(--obs-slider-fill),
+    var(--obs-grey4) 100%);
+}
+
+.obs-slider::-webkit-slider-thumb,
+.obs-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 10px;
+  margin-top: -3px; /* (4px groove - 10px handle) / 2, mirrors QSS margin: -3px 0 */
+  border: none;
+  border-radius: var(--obs-radius);
+  background-color: var(--obs-white1);
+}
+
+.obs-slider:hover::-webkit-slider-thumb,
+.obs-range:hover::-webkit-slider-thumb {
+  background-color: var(--obs-white4);
+}
+
+.obs-slider:active::-webkit-slider-thumb,
+.obs-range:active::-webkit-slider-thumb {
+  background-color: var(--obs-white3);
+}
+
+.obs-slider::-moz-range-track,
+.obs-range::-moz-range-track {
+  height: 4px;
+  border: none;
+  border-radius: var(--obs-radius-sm);
+  background-color: var(--obs-grey4);
+}
+
+.obs-slider::-moz-range-progress,
+.obs-range::-moz-range-progress {
+  height: 4px;
+  border-radius: var(--obs-radius-sm);
+  background-color: var(--obs-blue2);
+}
+
+.obs-slider::-moz-range-thumb,
+.obs-range::-moz-range-thumb {
+  width: 20px;
+  height: 10px;
+  border: none;
+  border-radius: var(--obs-radius);
+  background-color: var(--obs-white1);
+}
+
+.obs-slider:hover::-moz-range-thumb,
+.obs-range:hover::-moz-range-thumb {
+  background-color: var(--obs-white4);
+}
+
+.obs-slider:active::-moz-range-thumb,
+.obs-range:active::-moz-range-thumb {
+  background-color: var(--obs-white3);
+}
+
+/* QSS: ::sub-page:horizontal:disabled { background-color: var(--grey4) }
+ *      ::add-page:horizontal:disabled { background-color: var(--grey7) }
+ *      ::handle:disabled { background-color: var(--white5) } */
+.obs-slider:disabled::-webkit-slider-runnable-track,
+.obs-range:disabled::-webkit-slider-runnable-track {
+  background-image: linear-gradient(to right,
+    var(--obs-grey4) 0,
+    var(--obs-grey4) var(--obs-slider-fill),
+    var(--obs-grey7) var(--obs-slider-fill),
+    var(--obs-grey7) 100%);
+}
+
+.obs-slider:disabled::-webkit-slider-thumb,
+.obs-range:disabled::-webkit-slider-thumb {
+  background-color: var(--obs-white5);
+}
+
+.obs-slider:disabled::-moz-range-track,
+.obs-range:disabled::-moz-range-track {
+  background-color: var(--obs-grey7);
+}
+
+.obs-slider:disabled::-moz-range-progress,
+.obs-range:disabled::-moz-range-progress {
+  background-color: var(--obs-grey4);
+}
+
+.obs-slider:disabled::-moz-range-thumb,
+.obs-range:disabled::-moz-range-thumb {
+  background-color: var(--obs-white5);
+}
+
+/* QSS: QLabel { background: transparent } + QWidget { color: var(--text) } */
+.obs-label {
+  display: inline-block;
+  background: transparent;
+  color: var(--obs-text);
+  font-family: inherit;
+  font-size: var(--obs-font-size);
+}
+
+.obs-label:disabled,
+.obs-label.is-disabled {
+  color: var(--obs-text-disabled);
+}
+
+/* QSS: idian--Row (L2594) { background: var(--grey5);
+ *      padding: var(--action_row_padding) var(--action_row_padding_x);
+ *      border-radius: var(--border_radius);
+ *      border: 1px solid var(--border_color) } (5px 10px)
+ *      idian--Row.keyFocus { background: var(--grey4);
+ *      border: 1px solid var(--highlight_color) } */
+.obs-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-spacing-large);
+  margin: var(--obs-spacing-base) 0;
+  padding: 5px 10px;
+  background: var(--obs-dock-title-bg);
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+  color: var(--obs-text);
+}
+
+.obs-field-row:focus-within,
+.obs-field-row.is-focus {
+  background: var(--obs-input-bg);
+  border-color: var(--obs-highlight-color);
+}
+
+.obs-field-row > .obs-label:first-child {
+  flex: 0 0 auto;
+}
+
+.obs-field-row > .obs-input,
+.obs-field-row > .obs-select,
+.obs-field-row > .obs-spin,
+.obs-field-row > .obs-btn {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* QSS: idian--RowList .description { font-size: var(--font_small);
+ *      color: var(--text_muted); padding: 0 } + .subtitle (L423) */
+.obs-hint {
+  display: block;
+  margin: 0;
+  padding: 0;
+  color: var(--obs-text-muted);
+  font-size: var(--obs-font-size-small);
+  font-weight: var(--obs-font-weight-normal);
+}
+
+
+/* ==========================================================================
+ * 11. LISTS / TREES / TABLES / GRIDS
+ * QSS: QAbstractItemView (L668), QListWidget (L736), QListView/QListWidget/QMenu
+ *      (L744), ::item (L751/766/787), ::item:selected (L803), ::item:hover
+ *      (L811), ::item:focus (L818), ::item:selected:hover (L827),
+ *      ::item:disabled (L835), SceneTree grid (L2224-2250), QTableView (L1990),
+ *      QHeaderView::section (L2013), idian--ListHeader (L2569)
+ * ========================================================================== */
+
+/* QSS: QAbstractItemView { background-color: var(--bg_base) }
+ *      QListView, QListWidget, QMenu { padding: var(--spacing_base);
+ *                                      outline: none }
+ *      QListWidget { border-radius: var(--border_radius) } */
+.obs-list {
+  margin: 0;
+  padding: var(--obs-spacing-base);
+  background-color: var(--obs-panel-bg);
+  border: none;
+  border-radius: var(--obs-radius);
+  color: var(--obs-text);
+  list-style: none;
+  outline: none;
+}
+
+/* QSS: QListWidget::item, SourceTreeItem { padding: var(--padding_large)
+ *      var(--padding_large); min-height: var(--padding_menu) }
+ *      QListView::item, QListWidget::item { border-radius: var(--border_radius);
+ *      color: var(--text); border: 1px solid transparent } */
+.obs-list > li,
+.obs-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-spacing-base);
+  padding: var(--obs-padding-large) var(--obs-padding-large);
+  min-height: var(--obs-padding-menu);
+  border: var(--obs-border-width) solid transparent;
+  border-radius: var(--obs-radius);
+  color: var(--obs-text);
+  cursor: default;
+  user-select: none;
+}
+
+/* QSS: QListView::item:hover { background: var(--grey4);
+ *                              border: 1px solid var(--grey3) } */
+.obs-list > li:hover,
+.obs-list-item:hover {
+  background: var(--obs-list-hover-bg);
+  border: var(--obs-border-width) solid var(--obs-list-hover-border);
+}
+
+/* QSS: QListView::item:selected { background-color: var(--primary);
+ *                                border-color: var(--primary_light) } */
+.obs-list > li.is-selected,
+.obs-list > li[aria-selected='true'],
+.obs-list-item.is-selected,
+.obs-list-item[aria-selected='true'] {
+  background-color: var(--obs-selection-bg);
+  border-color: var(--obs-selection-border);
+  color: var(--obs-text-on-accent);
+}
+
+/* QSS: QListView::item:selected:hover
+ *      { background: var(--primary_light);
+ *        border: 1px solid var(--primary_lighter) } */
+.obs-list > li.is-selected:hover,
+.obs-list > li[aria-selected='true']:hover,
+.obs-list-item.is-selected:hover,
+.obs-list-item[aria-selected='true']:hover {
+  background: var(--obs-selection-hover-bg);
+  border: var(--obs-border-width) solid var(--obs-primary-lighter);
+  color: var(--obs-text);
+}
+
+/* QSS: QListView::item:focus, ::item:selected:focus
+ *      { border: 1px solid var(--white3) } */
+.obs-list > li:focus-visible,
+.obs-list-item:focus-visible {
+  border: var(--obs-border-width) solid var(--obs-focus-border);
+  outline: none;
+}
+
+/* QSS: QListView::item:disabled, ::item:disabled:hover
+ *      { background: transparent; color: var(--text_disabled) } */
+.obs-list > li.is-disabled,
+.obs-list > li[aria-disabled='true'],
+.obs-list-item.is-disabled,
+.obs-list-item[aria-disabled='true'] {
+  background: transparent;
+  border-color: transparent;
+  color: var(--obs-text-disabled);
+  pointer-events: none;
+}
+
+/* QSS: idian--ListHeader { border-radius: var(--border_radius);
+ *      font-weight: bold; margin: 0 0 var(--spacing_base);
+ *      padding: 0 var(--padding_base); min-width: 300px } */
+.obs-list-header {
+  display: flex;
+  align-items: center;
+  min-width: 300px;
+  margin: 0 0 var(--obs-spacing-base);
+  padding: 0 var(--obs-padding-base);
+  background: transparent;
+  border-radius: var(--obs-radius);
+  color: var(--obs-text-muted);
+  font-size: var(--obs-font-size-small);
+  font-weight: var(--obs-font-weight-bold);
+  user-select: none;
+}
+
+/* QSS: QTableView { background: var(--bg_base); gridline-color: var(--grey1) }
+ *      QHeaderView::section { background-color: var(--button_bg);
+ *        color: var(--text); border: none;
+ *        border-left/right: 1px solid var(--bg_window);
+ *        padding: 3px 0px; margin-bottom: 2px }
+ *      QTableView::item { margin: 0px; padding: 0px } */
+.obs-table {
+  width: 100%;
+  background: var(--obs-panel-bg);
+  color: var(--obs-text);
+  border: none;
+  border-collapse: collapse;
+  border-radius: var(--obs-radius);
+  font-size: var(--obs-font-size);
+  outline: none;
+}
+
+.obs-table th {
+  background-color: var(--obs-button-bg);
+  color: var(--obs-text);
+  border: none;
+  border-left: var(--obs-border-width) solid var(--obs-window-bg);
+  border-right: var(--obs-border-width) solid var(--obs-window-bg);
+  border-bottom: var(--obs-spacing-base) solid var(--obs-panel-bg); /* margin-bottom: 2px */
+  padding: 3px 0;
+  font-weight: var(--obs-font-weight-normal);
+  text-align: left;
+  user-select: none;
+}
+
+.obs-table td {
+  margin: 0;
+  padding: 0;
+  border: var(--obs-border-width) solid var(--obs-grey1); /* gridline-color */
+  color: var(--obs-text);
+}
+
+.obs-table tbody tr:hover td {
+  background: var(--obs-list-hover-bg);
+}
+
+.obs-table tbody tr.is-selected td,
+.obs-table tbody tr[aria-selected='true'] td {
+  background-color: var(--obs-selection-bg);
+  color: var(--obs-text-on-accent);
+}
+
+/* QSS: QTreeView / QTreeWidget have NO rules in Yami.obt. They inherit
+ *      QAbstractItemView { background-color: var(--bg_base) } and the QWidget
+ *      defaults; branch indicators come from the base Qt style. */
+.obs-tree {
+  margin: 0;
+  padding: var(--obs-spacing-base);
+  background: var(--obs-panel-bg);
+  border: none;
+  border-radius: var(--obs-radius);
+  color: var(--obs-text);
+  list-style: none;
+  outline: none;
+}
+
+.obs-tree [role='treeitem'],
+.obs-tree .obs-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-spacing-base);
+  padding: var(--obs-padding-large) var(--obs-padding-large);
+  min-height: var(--obs-padding-menu);
+  border: var(--obs-border-width) solid transparent;
+  border-radius: var(--obs-radius);
+  color: var(--obs-text);
+  cursor: default;
+  user-select: none;
+}
+
+.obs-tree [role='treeitem']:hover {
+  background: var(--obs-list-hover-bg);
+  border-color: var(--obs-list-hover-border);
+}
+
+.obs-tree [role='treeitem'][aria-selected='true'],
+.obs-tree [role='treeitem'].is-selected {
+  background-color: var(--obs-selection-bg);
+  border-color: var(--obs-selection-border);
+  color: var(--obs-text-on-accent);
+}
+
+/* QSS: .list-grid SceneTree::item { color: var(--text);
+ *        background-color: var(--button_bg);
+ *        border-radius: var(--border_radius); margin: var(--spacing_base) }
+ *      SceneTree { qproperty-gridItemWidth: 154;
+ *                  qproperty-gridItemHeight: var(--input_height_base) }
+ *      :selected { background-color: var(--list_item_bg_selected) }
+ *      :checked { background-color: var(--primary) }
+ *      :hover { background-color: var(--list_item_bg_hover) }
+ *      :selected:hover { background-color: var(--list_item_bg_hover) } */
+.obs-grid,
+.obs-scene-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));
+  grid-auto-rows: minmax(var(--obs-control-row-height), auto);
+  gap: var(--obs-spacing-large); /* 2px margin per item on each side */
+  margin: 0;
+  padding: var(--obs-spacing-base);
+  background: var(--obs-panel-bg);
+  border-radius: var(--obs-radius);
+  list-style: none;
+}
+
+.obs-grid > *,
+.obs-scene-grid > * {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: var(--obs-control-row-height);
+  min-width: 0;
+  padding: var(--obs-padding-large);
+  background-color: var(--obs-button-bg);
+  color: var(--obs-text);
+  border: var(--obs-border-width) solid transparent;
+  border-radius: var(--obs-radius);
+  cursor: default;
+  user-select: none;
+  overflow: hidden;
+}
+
+.obs-grid > *:hover,
+.obs-scene-grid > *:hover {
+  background-color: var(--obs-selection-hover-bg);
+}
+
+.obs-grid > *.is-selected,
+.obs-grid > *[aria-selected='true'],
+.obs-scene-grid > *.is-selected,
+.obs-scene-grid > *[aria-selected='true'] {
+  background-color: var(--obs-selection-bg);
+  border-color: var(--obs-selection-border);
+}
+
+/* QSS: SceneTree::item:checked { background-color: var(--primary) } */
+.obs-grid > *.is-checked,
+.obs-grid > *[aria-checked='true'],
+.obs-scene-grid > *.is-checked,
+.obs-scene-grid > *[aria-checked='true'] {
+  background-color: var(--obs-primary);
+  border-color: var(--obs-primary-light);
+}
+
+.obs-grid > *:focus-visible,
+.obs-scene-grid > *:focus-visible {
+  border-color: var(--obs-focus-border);
+  outline: none;
+}
+
+
+/* ==========================================================================
+ * 12. TABS
+ * QSS: QTabBar (L1156), QTabBar::tab (L1185), ::tab:pressed (L1195),
+ *      ::tab:hover (L1199), ::tab:focus (L1205), ::tab:selected (L1209),
+ *      ::tab:top/bottom radii (L1175-1183)
+ * ========================================================================== */
+
+/* QSS: QTabBar { outline: none; font-size: var(--font_small) }
+ *      QTabWidget::tab-bar { alignment: left } */
+.obs-tabs {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0;
+  background: transparent;
+  border: none;
+  font-size: var(--obs-font-size-small);
+  outline: none;
+  user-select: none;
+}
+
+/* QSS: QTabBar::tab { background: var(--tab_bg); color: var(--text_muted);
+ *      border: 1px solid var(--tab_bg);
+ *      padding: var(--tab_padding_base) var(--tab_padding_large);
+ *      min-width: 50px; margin: 1px 0px; margin-right: 2px }
+ *      ::tab:top { border-top-left/right-radius: 4px }
+ *      ::tab:top { margin-bottom: 0px } */
+.obs-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--obs-spacing-base);
+  min-width: 50px;
+  margin: 1px 2px 0 0;
+  padding: var(--obs-padding-large) var(--obs-padding-wide);
+  background: var(--obs-tab-bg);
+  color: var(--obs-tab-fg);
+  border: var(--obs-border-width) solid var(--obs-tab-bg);
+  border-top-left-radius: var(--obs-radius);
+  border-top-right-radius: var(--obs-radius);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  font: inherit;
+  outline: none;
+  cursor: default;
+  white-space: nowrap;
+}
+
+/* QSS: QTabBar::tab:hover { background: var(--tab_bg_hover);
+ *      border-color: var(--tab_border_hover); color: var(--text) } */
+.obs-tab:hover {
+  background: var(--obs-tab-bg-hover);
+  border-color: var(--obs-tab-border-hover);
+  color: var(--obs-text);
+}
+
+/* QSS: QTabBar::tab:pressed { background: var(--tab_bg_down) } */
+.obs-tab:active {
+  background: var(--obs-tab-bg-down);
+}
+
+/* QSS: QTabBar::tab:focus { border-color: var(--tab_border_focus) } */
+.obs-tab:focus-visible {
+  border-color: var(--obs-tab-border-focus);
+  outline: none;
+}
+
+/* QSS: QTabBar::tab:selected { background: var(--primary); color: var(--text);
+ *                              border: 1px solid var(--primary_light) }
+ * NOTE: the token --tab_border_selected (#284CB8) exists but is NOT used by
+ * this rule in Yami.obt — the selected tab border is --primary_light (#476BD7).
+ * The unused token is kept in §2 to stay faithful to the theme's variable set. */
+.obs-tab.is-selected,
+.obs-tab[aria-selected='true'] {
+  background: var(--obs-primary);
+  color: var(--obs-tab-fg-active);
+  border: var(--obs-border-width) solid var(--obs-primary-light);
+}
+
+/* QSS: QTabWidget::pane { border-top: 4px solid var(--tab_bg) }
+ * Top tabs: the pane is the following sibling.
+ * Bottom tabs: the pane sits above, so the strip carries the 4px edge instead.
+ * QSS: QTabBar::bottom / ::tab:bottom use bottom radii (L1166-1183). */
+.obs-tabs + * {
+  border-top: 4px solid var(--obs-tab-bg);
+}
+
+.obs-tabs.is-bottom {
+  align-items: flex-start;
+  border-top: 4px solid var(--obs-tab-bg);
+}
+
+.obs-tabs.is-bottom .obs-tab {
+  margin: 0 2px 1px 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: var(--obs-radius);
+  border-bottom-right-radius: var(--obs-radius);
+}
+
+
+/* ==========================================================================
+ * 13. GROUP BOX
+ * QSS: QGroupBox (L988), QGroupBox::title (L997)
+ * ========================================================================== */
+
+/* QSS: QGroupBox { background: var(--bg_base);
+ *      border-radius: var(--border_radius);
+ *      padding-top: var(--input_height_base);
+ *      padding-bottom: var(--padding_large);
+ *      font-weight: bold; margin-bottom: var(--spacing_large) }
+ * NOTE: the base theme draws NO border on QGroupBox. */
+.obs-group {
+  position: relative;
+  margin: 0 0 var(--obs-spacing-large);
+  padding: var(--obs-control-row-height) var(--obs-padding-large)
+           var(--obs-padding-large);
+  background: var(--obs-panel-bg);
+  border: none;
+  border-radius: var(--obs-radius);
+  color: var(--obs-text);
+  font-weight: var(--obs-font-weight-bold);
+}
+
+/* QSS: QGroupBox::title { subcontrol-origin: margin;
+ *      left: var(--spacing_title); top: var(--spacing_title) } */
+.obs-group-title {
+  position: absolute;
+  top: var(--obs-spacing-large);
+  left: var(--obs-spacing-large);
+  font-weight: var(--obs-font-weight-bold);
+  color: var(--obs-text);
+}
+
+/* QSS: QGroupBox, QCheckBox, QLabel { background: transparent } — but the
+ * base QGroupBox itself is var(--bg_base); nested labels stay transparent. */
+.obs-group .obs-label,
+.obs-group > .obs-hint {
+  background: transparent;
+  font-weight: var(--obs-font-weight-normal);
+}
+
+
+/* ==========================================================================
+ * 14. SCROLLABLE CONTAINERS — 12px scrollbars, no arrow buttons
+ * QSS: QScrollBar (L1006), :vertical/:horizontal (L1018/1038),
+ *      ::add-line/::sub-line (L1022/1042), arrows + pages (L1029/1049),
+ *      ::handle (L1058), ::handle:hover (L1065), ::handle:pressed (L1070),
+ *      ::handle:min-length (L1075/1079), ::handle:disabled (L1083),
+ *      ::corner (L1013)
+ * ========================================================================== */
+
+.obs-scroll {
+  overflow: auto;
+}
+
+/* NOTE: `scrollbar-width` / `scrollbar-color` are NOT set unconditionally.
+ * Chrome 121+ honours them and, when set, *disables* all
+ * ::-webkit-scrollbar styling — which would lose the exact 12px geometry,
+ * 2px inset thumb and 2px radius. They are therefore applied only where
+ * ::-webkit-scrollbar is unsupported (i.e. Firefox). */
+@supports not selector(::-webkit-scrollbar) {
+  .obs-scroll {
+    scrollbar-width: thin; /* closest available to --obs-scrollbar-size: 12px */
+    scrollbar-color: var(--obs-scrollbar-handle) var(--obs-scrollbar-bg);
+  }
+}
+
+/* QSS: QScrollBar { background-color: var(--scrollbar_bg); margin: 0px;
+ *      border-radius: var(--border_radius);
+ *      border: 1px solid var(--grey6) }
+ *      QScrollBar:vertical { width: var(--scrollbar_size) }
+ *      QScrollBar:horizontal { height: var(--scrollbar_size) } */
+.obs-scroll::-webkit-scrollbar {
+  width: var(--obs-scrollbar-size);
+  height: var(--obs-scrollbar-size);
+  background-color: var(--obs-scrollbar-bg);
+  border: var(--obs-border-width) solid var(--obs-grey6);
+  border-radius: var(--obs-radius);
+}
+
+.obs-scroll::-webkit-scrollbar-track {
+  background-color: var(--obs-scrollbar-bg);
+  border-radius: var(--obs-radius);
+}
+
+/* QSS: QScrollBar::add-line / ::sub-line { height/width: 0px; border: none;
+ *      background: none } + all arrow/page pseudo-elements -> none.
+ * No arrow buttons exist in this theme. */
+.obs-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+  background: none;
+  border: none;
+}
+
+.obs-scroll::-webkit-scrollbar-track-piece {
+  background: none;
+  border: none;
+}
+
+/* QSS: QScrollBar::handle { background-color: var(--scrollbar_handle);
+ *      margin: 2px; border-radius: var(--border_radius_small);
+ *      border: 1px solid var(--scrollbar_handle) }
+ *      ::handle:vertical { min-height: 32px }
+ *      ::handle:horizontal { min-width: 32px }
+ * The 2px `margin` is reproduced with a transparent border + background-clip. */
+.obs-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--obs-scrollbar-handle);
+  border: var(--obs-spacing-base) solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--obs-radius);
+  min-height: 32px;
+  min-width: 32px;
+}
+
+/* QSS: QScrollBar::handle:hover { background-color: var(--scrollbar_hover);
+ *                                 border-color: var(--scrollbar_border) }
+ * The 2px transparent border provides the QSS `margin: 2px` inset; on hover it
+ * takes the border colour, so Qt's 1px outline reads as a 2px ring here (the
+ * scrollbar pseudo-element has a single border box). */
+.obs-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--obs-scrollbar-hover);
+  border-color: var(--obs-scrollbar-border);
+}
+
+/* QSS: QScrollBar::handle:pressed { background-color: var(--scrollbar_down);
+ *                                   border-color: var(--scrollbar_down) } */
+.obs-scroll::-webkit-scrollbar-thumb:active {
+  background-color: var(--obs-scrollbar-active);
+}
+
+/* QSS: QScrollBar::handle:disabled { background: transparent;
+ *                                    border-color: transparent }
+ * There is no web equivalent for a disabled scrollbar thumb, so the state
+ * cannot be reproduced; the Qt rule is noted here for completeness. */
+
+/* QSS: ::corner { background-color: var(--bg_window); border: none } */
+.obs-scroll::-webkit-scrollbar-corner {
+  background-color: var(--obs-window-bg);
+  border: none;
+}
+
+/* QSS: OBSDock QScrollBar { border-radius: 0 }
+ *      OBSDock QScrollBar:horizontal { border-top: 1px solid var(--border_color) }
+ *      OBSDock QScrollBar:vertical { border-left: 1px solid var(--border_color) } */
+.obs-dock-content.obs-scroll::-webkit-scrollbar {
+  border-radius: 0;
+}
+
+.obs-dock-content.obs-scroll::-webkit-scrollbar:horizontal {
+  border-top: var(--obs-border-width) solid var(--obs-border);
+}
+
+.obs-dock-content.obs-scroll::-webkit-scrollbar:vertical {
+  border-left: var(--obs-border-width) solid var(--obs-border);
+}
+
+/* QSS: OBSBasicSettings QScrollBar:vertical { width: var(--settings_scrollbar_size);
+ *      margin-left: 9px } — 21px in the Settings dialog. */
+.obs-scroll.is-settings::-webkit-scrollbar {
+  width: 21px;
+  height: 21px;
+}
+
+.obs-scroll.is-settings::-webkit-scrollbar:vertical {
+  margin-left: 9px;
+}
+
+
+/* ==========================================================================
+ * 15. DIALOGS / MODALS / TOOLTIPS
+ * QSS: QDialog (L605), .dialog-container (L408), .dialog-frame (L412),
+ *      QDialogButtonBox (L2410), QToolTip (L672)
+ * ========================================================================== */
+
+/* NOT IN QSS: Qt drew a native modal window; the web port needs a scrim.
+ * Uses --obs-black1 at 66% — no blur, no shadow. */
+.obs-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 10, 0.66);
+}
+
+/* QSS: QDialog { background-color: var(--bg_window) } */
+.obs-dialog {
+  display: flex;
+  flex-direction: column;
+  min-width: 320px;
+  max-width: 90vw;
+  max-height: 90vh;
+  background-color: var(--obs-window-bg);
+  color: var(--obs-text);
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+  overflow: hidden;
+}
+
+/* QSS: no dedicated rule. Mirrors .text-title (L327, font-size:
+ *      var(--font_large); font-weight: bold) over the dialog surface. */
+.obs-dialog-title {
+  flex: 0 0 auto;
+  padding: var(--obs-padding-large) var(--obs-padding-xlarge);
+  color: var(--obs-text);
+  font-size: var(--obs-font-size-large);
+  font-weight: var(--obs-font-weight-bold);
+  border-bottom: var(--obs-border-width) solid var(--obs-border);
+  user-select: none;
+}
+
+/* QSS: .dialog-frame { background-color: var(--grey6);
+ *      border-radius: var(--border_radius);
+ *      border: 1px solid var(--border_color); margin: var(--spacing_base) }
+ *      .dialog-frame > QWidget { margin: var(--spacing_base) 0 }
+ *      .dialog-container { padding: var(--padding_large) var(--padding_xlarge) } */
+.obs-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  margin: var(--obs-spacing-base);
+  padding: var(--obs-padding-large) var(--obs-padding-xlarge);
+  background-color: var(--obs-panel-bg);
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+}
+
+.obs-dialog-body > * {
+  margin-top: var(--obs-spacing-base);
+  margin-bottom: var(--obs-spacing-base);
+}
+
+/* QSS: QDialogButtonBox { dialogbuttonbox-buttons-have-icons: 0 }
+ *      (standard dialog buttons carry no icons) */
+.obs-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: var(--obs-spacing-base);
+  padding: var(--obs-padding-large) var(--obs-padding-xlarge);
+  border-top: var(--obs-border-width) solid var(--obs-border);
+}
+
+.obs-dialog-footer .obs-btn > :is(svg, img) {
+  display: none;
+}
+
+/* QSS: QToolTip { background-color: var(--bg_base); color: var(--text);
+ *                border: none } */
+.obs-tooltip {
+  position: absolute;
+  z-index: 3000;
+  max-width: 360px;
+  padding: var(--obs-padding-base) var(--obs-padding-large);
+  background-color: var(--obs-tooltip-bg);
+  color: var(--obs-text);
+  border: none;
+  border-radius: 0;
+  font-family: var(--obs-font-family);
+  font-size: var(--obs-font-size);
+  pointer-events: none;
+}
+
+
+/* ==========================================================================
+ * 16. PREVIEW / CANVAS
+ * QSS: OBSQTDisplay (L2025), .label-preview-title (L2047),
+ *      #previewScalingMode / #previewScalePercent (L2424-2459),
+ *      #previewXContainer (L2437), #previewX/YScrollBar (L2461-2480)
+ * ========================================================================== */
+
+/* QSS: OBSQTDisplay { qproperty-displayBackgroundColor: var(--bg_preview) }
+ *      #previewXContainer { border: 1px solid var(--grey6) } */
+.obs-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--obs-preview-bg);
+  border: var(--obs-border-width) solid var(--obs-grey6);
+  border-radius: var(--obs-radius);
+  overflow: hidden;
+}
+
+/* QSS: OBSQTDisplay { qproperty-displayBackgroundColor: var(--bg_preview) } */
+.obs-preview-canvas {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--obs-preview-bg);
+  border: none;
+  object-fit: contain;
+}
+
+/* QSS: .label-preview-title { font-size: var(--font_xlarge);
+ *      font-weight: bold; color: var(--text_light); margin-bottom: 4px }
+ * The .obt uses this ONE class for both the Preview and the Program label
+ * (OBSBasic.ui:213 and OBSBasic_StudioMode.cpp:227). */
+.obs-preview-label {
+  display: block;
+  margin: 0 0 4px;
+  color: var(--obs-text-light);
+  font-size: var(--obs-font-size-xlarge);
+  font-weight: var(--obs-font-weight-bold);
+  user-select: none;
+}
+
+/* QSS: no visual distinction — both roles share .label-preview-title. */
+.obs-preview-label.is-preview,
+.obs-preview-label.is-program {
+  color: var(--obs-text-light);
+}
+
+/* QSS: #previewScalePercent, #previewScalingMode { background: transparent;
+ *      color: var(--text_muted); font-size: var(--font_xsmall);
+ *      height: 14px; padding: 0px; margin: 0; border: none;
+ *      border-radius: 0 }
+ *      #previewScalingMode { padding: 0 var(--input_text_padding);
+ *                            border: 1px solid var(--grey6) }
+ *      #previewScalingMode:on { background-color: var(--input_bg_focus);
+ *                               border-color: var(--input_border_focus) } */
+.obs-preview .obs-select.is-plain,
+.obs-preview-scaling-mode {
+  height: 14px;
+  min-height: 14px;
+  margin: 0;
+  padding: 0 var(--obs-input-text-padding);
+  background-color: transparent;
+  color: var(--obs-text-muted);
+  border: var(--obs-border-width) solid var(--obs-grey6);
+  border-radius: 0;
+  font-size: var(--obs-font-size-xsmall);
+}
+
+.obs-preview .obs-select.is-plain:hover,
+.obs-preview-scaling-mode:hover,
+.obs-preview-scaling-mode:focus-visible {
+  border-color: var(--obs-input-border-hover);
+}
+
+.obs-preview .obs-select.is-plain:focus,
+.obs-preview-scaling-mode.is-open {
+  background-color: var(--obs-input-bg-focus);
+  border-color: var(--obs-border-focus);
+}
+
+
+/* ==========================================================================
+ * 17. AUDIO METERS + MIXER
+ * QSS: VolumeMeter (L1804-1825) qproperties, VolumeControl / VolumeName
+ *      (L1799-1852), .mixer-category (L1686/1946-1975),
+ *      #hVolumeWidgets / #vVolumeWidgets (L1855-1934)
+ * ========================================================================== */
+
+/* QSS: VolumeControl, VolumeMeter { background: var(--bg_base) }
+ *      VolumeMeter { color: var(--grey3); font-size: 6pt; font-weight: bold } */
+.obs-meter {
+  position: relative;
+  display: block;
+  background: var(--obs-meter-nominal-bg);
+  color: var(--obs-grey3);
+  font-size: 6pt;
+  font-weight: var(--obs-font-weight-bold);
+  overflow: hidden;
+}
+
+/* QSS: VolumeMeter { qproperty-backgroundNominalColor: var(--green5) } */
+.obs-meter-bar {
+  position: absolute;
+  inset: 0;
+  background: var(--obs-meter-nominal-bg);
+}
+
+.obs-meter-bar.is-warning {
+  background: var(--obs-meter-warning-bg);
+}
+
+.obs-meter-bar.is-error {
+  background: var(--obs-meter-error-bg);
+}
+
+/* QSS: VolumeMeter { qproperty-foregroundNominalColor: var(--green2) }.
+ * The app sets --obs-meter-level (0-100%) on the fill element. */
+.obs-meter-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--obs-meter-level, 0%);
+  background: var(--obs-meter-nominal-fg);
+}
+
+/* Horizontal orientation hook (the .obt's mixer supports both). */
+.obs-meter.is-horizontal .obs-meter-fill {
+  top: auto;
+  right: auto;
+  bottom: 0;
+  width: var(--obs-meter-level, 0%);
+  height: 100%;
+}
+
+.obs-meter-fill.is-warning {
+  background: var(--obs-meter-warning-fg);
+}
+
+.obs-meter-fill.is-error {
+  background: var(--obs-meter-error-fg);
+}
+
+/* QSS: VolumeMeter { qproperty-magnitudeColor: rgb(0, 0, 0) }
+ * The peak-hold marker is drawn in black. */
+.obs-meter-peak {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--obs-meter-magnitude);
+  pointer-events: none;
+}
+
+/* QSS: VolumeMeter { qproperty-majorTickColor: var(--white5);
+ *                    qproperty-minorTickColor: var(--grey1) } */
+.obs-meter-scale {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(to right,
+      var(--obs-meter-major-tick) 0,
+      var(--obs-meter-major-tick) 1px,
+      transparent 1px,
+      transparent 48px),
+    repeating-linear-gradient(to right,
+      var(--obs-meter-minor-tick) 0,
+      var(--obs-meter-minor-tick) 1px,
+      transparent 1px,
+      transparent 12px);
+}
+
+/* QSS: VolumeControl.volume-inactive, VolumeControl.volume-inactive VolumeMeter
+ *      { background: var(--grey7) }
+ *      VolumeMeter disabled colours (black4/black5/black3 + white3/white4). */
+.obs-meter.is-inactive,
+.obs-meter:disabled {
+  background: var(--obs-grey7);
+}
+
+.obs-meter.is-inactive .obs-meter-bar,
+.obs-meter:disabled .obs-meter-bar {
+  background: var(--obs-meter-nominal-bg-disabled);
+}
+
+.obs-meter.is-inactive .obs-meter-fill,
+.obs-meter:disabled .obs-meter-fill {
+  background: var(--obs-meter-nominal-fg-disabled);
+}
+
+/* QSS: VolumeMeter disabled qproperties for the warning / error segments:
+ *      backgroundWarningColorDisabled / backgroundErrorColorDisabled and
+ *      foregroundWarningColorDisabled / foregroundErrorColorDisabled. */
+.obs-meter.is-inactive .obs-meter-bar.is-warning,
+.obs-meter:disabled .obs-meter-bar.is-warning {
+  background: var(--obs-meter-warning-bg-disabled);
+}
+
+.obs-meter.is-inactive .obs-meter-bar.is-error,
+.obs-meter:disabled .obs-meter-bar.is-error {
+  background: var(--obs-meter-error-bg-disabled);
+}
+
+.obs-meter.is-inactive .obs-meter-fill.is-warning,
+.obs-meter:disabled .obs-meter-fill.is-warning {
+  background: var(--obs-meter-warning-fg-disabled);
+}
+
+.obs-meter.is-inactive .obs-meter-fill.is-error,
+.obs-meter:disabled .obs-meter-fill.is-error {
+  background: var(--obs-meter-error-fg-disabled);
+}
+
+/* QSS: #vVolumeWidgets VolumeControl { padding: 0px 0px var(--padding_container);
+ *      border-right: 1px solid var(--border_color) }
+ *      VolumeControl, VolumeMeter { background: var(--bg_base) } */
+.obs-mixer-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--obs-spacing-base);
+  padding: 0 0 var(--obs-padding-large);
+  background: var(--obs-panel-bg);
+  border-right: var(--obs-border-width) solid var(--obs-border);
+}
+
+/* QSS: VolumeControl #volLabel { min-width: 48px; padding: var(--padding_base)
+ *      0px; text-align: center; font-size: var(--font_small);
+ *      color: var(--text_muted) }
+ *      #vVolumeWidgets VolumeControl #volLabel { min-width:
+ *      var(--volume_slider_label) (28px); margin-left: var(--padding_xlarge) } */
+.obs-mixer-label {
+  min-width: 28px;
+  padding: var(--obs-padding-base) 0;
+  margin-left: var(--obs-padding-xlarge);
+  text-align: center;
+  color: var(--obs-text-muted);
+  font-size: var(--obs-font-size-small);
+  user-select: none;
+}
+
+/* QSS: VolumeControl .mixer-category { font-weight: bold;
+ *      background: var(--blue6); color: var(--blue1) } — the channel chip. */
+.obs-mixer-label.is-category {
+  min-width: 0;
+  margin-left: 0;
+  padding: 0 var(--obs-padding-xlarge);
+  border-radius: var(--obs-radius);
+  background: var(--obs-mixer-category-bg);
+  color: var(--obs-mixer-category-fg);
+  font-weight: var(--obs-font-weight-bold);
+}
+
+/* QSS: VolumeControl.volume-pinned .mixer-category
+ *      { background: var(--blue5); color: var(--text_light) } */
+.obs-mixer-label.is-category.is-pinned {
+  background: var(--obs-mixer-pinned-bg);
+  color: var(--obs-text-light);
+}
+
+/* QSS: VolumeControl.volume-hidden .mixer-category
+ *      { background: var(--purple6); color: var(--purple1) } */
+.obs-mixer-label.is-category.is-hidden {
+  background: var(--obs-mixer-hidden-bg);
+  color: var(--obs-mixer-hidden-fg);
+}
+
+/* QSS: VolumeControl.volume-unassigned .mixer-category
+ *      { background: var(--yellow6); color: var(--yellow1) } */
+.obs-mixer-label.is-category.is-unassigned {
+  background: var(--obs-mixer-unassigned-bg);
+  color: var(--obs-mixer-unassigned-fg);
+}
+
+/* QSS: VolumeControl.volume-inactive .mixer-category
+ *      { background: var(--grey8); color: var(--text_muted) } */
+.obs-mixer-label.is-category.is-inactive {
+  background: var(--obs-mixer-inactive-bg);
+  color: var(--obs-text-muted);
+}
+
+/* QSS: VolumeControl.volume-preview .mixer-category
+ *      { background: var(--green6); color: var(--green1) } */
+.obs-mixer-label.is-category.is-preview {
+  background: var(--obs-mixer-preview-bg);
+  color: var(--obs-mixer-preview-fg);
+}
+
+/* QSS: .btn-mute / .btn-monitor layout inside the mixer:
+ *      width/height: var(--icon_small); margin: 0px var(--spacing_small) */
+.obs-mixer-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--obs-spacing-base);
+  margin: 0 var(--obs-spacing-small);
+}
+
+
+/* ==========================================================================
+ * 18. BADGES + TEXT HELPERS
+ * QSS: InfoChip (L2561), .text-* (L327-395), .bg-* (L295-395)
+ * ========================================================================== */
+
+/* QSS: InfoChip { font-size: var(--font_small); font-weight: bold;
+ *                 padding: 0 var(--padding_large);
+ *                 border-radius: var(--border_radius) } */
+.obs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--obs-spacing-small);
+  padding: 0 var(--obs-padding-large);
+  border-radius: var(--obs-radius);
+  background: var(--obs-button-bg);
+  color: var(--obs-text);
+  font-size: var(--obs-font-size-small);
+  font-weight: var(--obs-font-weight-bold);
+  line-height: 14px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* QSS: .bg-danger.text-danger { color: var(--red1) } over var(--red6) */
+.obs-badge.live {
+  background: var(--obs-error-surface);
+  color: var(--obs-error-bright);
+}
+
+/* QSS: .text-muted { color: var(--text_muted) } over --bg_base */
+.obs-badge.muted {
+  background: var(--obs-panel-bg);
+  color: var(--obs-text-muted);
+}
+
+/* QSS: .bg-warning.text-warning { color: var(--yellow1) } over var(--yellow6) */
+.obs-badge.warning {
+  background: var(--obs-warning-surface);
+  color: var(--obs-warning-bright);
+}
+
+/* QSS: no dedicated empty-state rule; matches the muted description styling
+ * and the centered SourceSelectButton QLabel (L2529). */
+.obs-empty {
+  display: block;
+  padding: var(--obs-padding-wide);
+  color: var(--obs-text-muted);
+  font-size: var(--obs-font-size);
+  text-align: center;
+}
+
+/* QSS: .text-muted { color: var(--text_muted) } */
+.obs-muted {
+  color: var(--obs-text-muted);
+}
+
+/* QSS: .text-success { color: var(--green3) } */
+.obs-success {
+  color: var(--obs-success);
+}
+
+/* QSS: .text-warning { color: var(--yellow3) } */
+.obs-warning {
+  color: var(--obs-warning);
+}
+
+/* QSS: .text-danger { color: var(--red3) } */
+.obs-error {
+  color: var(--obs-error);
+}
+
+/* QSS: .text-bold { font-weight: bold } */
+.obs-bold {
+  font-weight: var(--obs-font-weight-bold);
+}
+
+/* QSS: .source-icon { margin-right: var(--spacing_large) }
+ *      + icon-size: var(--icon_base) */
+.obs-source-icon {
+  flex: 0 0 auto;
+  width: var(--obs-icon);
+  height: var(--obs-icon);
+  margin-right: var(--obs-spacing-large);
+  object-fit: contain;
+}
+
+/* NOT IN QSS: drag-and-drop affordances.
+ * Qt painted its own drop indicator; these reproduce it with the theme's
+ * keyboard-focus highlight (--highlight_color) and accent blue.
+ * QSS reference: idian--Row.keyFocus (L2601) / ::sub-page (L1620). */
+.obs-drag-over {
+  background: var(--obs-input-bg);
+  border-color: var(--obs-highlight-color);
+  outline: var(--obs-highlight-width) solid var(--obs-highlight-color);
+  outline-offset: -1px;
+}
+
+.obs-drop-indicator {
+  height: 2px;
+  min-height: 2px;
+  background: var(--obs-primary-light);
+  border: none;
+  border-radius: var(--obs-radius-sm);
+}
+
+
+/* ==========================================================================
+ * 19. END
+ * No box-shadow, no blur, no elevation filter appears anywhere in this file,
+ * by design: Yami has none. Depth is purely the grey ramp + 1px borders.
+ * ========================================================================== */
