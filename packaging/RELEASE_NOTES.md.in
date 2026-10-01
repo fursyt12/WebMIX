@@ -11,7 +11,7 @@ stops an unattended start.
 
 | Platform | File | Install |
 | --- | --- | --- |
-| Windows 10/11 (x64) | `webmix-@VERSION@-windows-x64.zip` | Unpack anywhere and run `bin/64bit/obs.exe --web` (or just `obs.exe` for the normal desktop UI). |
+| Windows 10/11 (x64) | `webmix-@VERSION@-windows-x64.zip` | Unpack anywhere and run `bin/64bit/obs64.exe --web` (or just `obs64.exe` for the normal desktop UI). |
 | Debian / Ubuntu | `webmix_@VERSION@_amd64.deb` | `sudo apt install ./webmix_@VERSION@_amd64.deb` |
 | Debug symbols (Linux) | `webmix-dbgsym_@VERSION@_amd64.ddeb` | `sudo apt install ./webmix-dbgsym_@VERSION@_amd64.ddeb` |
 | Arch Linux | `webmix-@VERSION@-1-x86_64.pkg.tar.zst` | `sudo pacman -U webmix-@VERSION@-1-x86_64.pkg.tar.zst` |

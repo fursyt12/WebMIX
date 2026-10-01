@@ -126,16 +126,23 @@ jobs:
       - name: Verify the package 🔎
         run: |
           : Verify the package 🔎
-          deb="$(ls dist/webmix_*_amd64.deb)"
+          deb="$(ls dist/webmix_[0-9]*_amd64.deb)"
           dpkg-deb -I "${deb}" >/dev/null
           dpkg-deb -c "${deb}" >contents.txt
-          grep -q 'usr/bin/obs$' contents.txt
-          grep -q 'usr/bin/webmix -> obs' contents.txt
-          grep -q 'usr/share/obs-studio/web/index.html' contents.txt
+          check() {
+            if grep -qE "$2" contents.txt; then
+              echo "ok   $1"
+            else
+              echo "::error::$1: nothing matching /$2/ in ${deb}"
+              exit 1
+            fi
+          }
           # The plugin directory name depends on the OBS version (obs-modules
           # after the 33.0 rename), so only the file name is asserted.
-          grep -qE '/obs-websocket\.so$' contents.txt
-          echo "${deb} contains obs, the webmix launcher, the web frontend and obs-websocket"
+          check 'installs obs' 'usr/bin/obs$'
+          check 'installs the webmix launcher' 'usr/bin/webmix -> obs'
+          check 'ships the web frontend' 'usr/share/obs-studio/web/index.html'
+          check 'ships obs-websocket' '/obs-websocket\.so$'
 
       - name: Upload artifacts 📡
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -175,14 +182,24 @@ jobs:
       - name: Verify the package 🔎
         run: |
           : Verify the package 🔎
-          pkg="$(ls dist/webmix-*.pkg.tar.zst)"
-          pacman -Qip "${pkg}" | grep -q '^Name.*: webmix'
-          pacman -Qlp "${pkg}" | grep -q 'usr/bin/obs$'
-          pacman -Qlp "${pkg}" | grep -q 'usr/bin/webmix'
-          pacman -Qlp "${pkg}" | grep -q 'usr/share/obs-studio/web/index.html'
-          pacman -Qlp "${pkg}" | grep -qE '/obs-websocket\.so$'
-          tar -tzf dist/webmix.db.tar.gz | grep -q 'webmix-0.1.0'
-          echo "${pkg} and the repository database look right"
+          # webmix-debug is built as well; [0-9] picks the package, not the debug one.
+          pkg="$(ls dist/webmix-[0-9]*.pkg.tar.zst)"
+          pacman -Qip "${pkg}" >info.txt
+          pacman -Qlp "${pkg}" >contents.txt
+          check() {
+            if grep -qE "$2" "$3"; then
+              echo "ok   $1"
+            else
+              echo "::error::$1: nothing matching /$2/ in $3"
+              exit 1
+            fi
+          }
+          check 'named webmix' '^Name.*: webmix' info.txt
+          check 'installs obs' 'usr/bin/obs$' contents.txt
+          check 'installs the webmix launcher' 'usr/bin/webmix' contents.txt
+          check 'ships the web frontend' 'usr/share/obs-studio/web/index.html' contents.txt
+          check 'ships obs-websocket' '/obs-websocket\.so$' contents.txt
+          check 'repository lists the package' 'webmix-0\.1\.0' <(tar -tzf dist/webmix.db.tar.gz)
 
       - name: Upload artifacts 📡
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -264,15 +281,30 @@ jobs:
       - name: Verify the archive 🔎
         shell: pwsh
         run: |
-          $zip = Get-ChildItem dist -Filter 'webmix-*.zip' | Select-Object -First 1
+          $zips = Get-ChildItem dist -Filter 'webmix-*.zip'
+          if ($zips.Count -ne 1) { Write-Host "::error::expected one webmix-*.zip, found $($zips.Count)"; exit 1 }
+          $zip = $zips[0]
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
           try {
             $names = $archive.Entries | ForEach-Object { $_.FullName }
-            foreach ($needed in @('obs.exe', 'obs-websocket.dll', 'data/obs-studio/web/index.html')) {
-              if (-not ($names -like "*$needed")) { throw "$needed is missing from $($zip.Name)" }
+            Write-Host "$($zip.Name) has $($names.Count) entries"
+            $missing = @()
+            # Windows builds the frontend as obs64.exe (frontend/CMakeLists.txt)
+            foreach ($needed in @('bin/64bit/obs64.exe', 'obs-websocket.dll', 'data/obs-studio/web/index.html')) {
+              if ($names -like "*$needed") {
+                Write-Host "ok   $needed"
+              } else {
+                $missing += $needed
+              }
             }
-            Write-Host "$($zip.Name) contains obs.exe, obs-websocket and the web frontend"
+            if ($missing.Count -gt 0) {
+              # Annotations are readable from outside the repository, so the
+              # layout of a failing archive is visible without the logs.
+              $names | Select-Object -First 40 | ForEach-Object { Write-Host "::notice::entry $_" }
+              Write-Host "::error::$($zip.Name) is missing: $($missing -join ', ')"
+              exit 1
+            }
           } finally {
             $archive.Dispose()
           }
