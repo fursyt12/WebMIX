@@ -50,12 +50,24 @@ namespace {
 
 constexpr int kMaxRequestBytes = 16 * 1024;
 
+/*! A query parameter, fully decoded.
+ *
+ * QUrlQuery decodes in PrettyDecoded mode by default, which leaves encoded
+ * delimiters alone: "name=%D0%9C%D0%B8%D0%BA%D1%80%2F%D0%B4%D0%BE%D0%BF" (the
+ * default microphone is called "Микр/доп") arrived undecoded and every lookup
+ * failed. Names, paths and filters all have to be decoded completely.
+ */
+QString QueryValue(const QUrlQuery &query, const char *key)
+{
+	return query.queryItemValue(QString::fromLatin1(key), QUrl::FullyDecoded);
+}
+
 /*! A positive integer query parameter, or `fallback` when it is missing or
  *  nonsense (an absent parameter reads as 0).  The GNU `x ?: fallback`
  *  shorthand would be shorter, but MSVC rejects it. */
 int QueryIntOr(const QUrlQuery &query, const char *name, int fallback)
 {
-	const int value = query.queryItemValue(name).toInt();
+	const int value = QueryValue(query, name).toInt();
 	return value > 0 ? value : fallback;
 }
 
@@ -300,7 +312,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 	    path == "/api/preview/multiview.jpg") {
 		const bool multiview = path.contains(QLatin1String("multiview"));
 		const bool singleFrame = path.endsWith(QLatin1String(".jpg"));
-		const QString source = query.queryItemValue("source");
+		const QString source = QueryValue(query, "source");
 
 		if (!multiview && source.isEmpty()) {
 			SendError(socket, 400, "Missing source");
@@ -309,8 +321,8 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 
 		/* Multiview defaults to a 16:9 grid; a single source uses its own size
 		 * when no dimensions are given. */
-		int width = query.queryItemValue("width").toInt();
-		int height = query.queryItemValue("height").toInt();
+		int width = QueryValue(query, "width").toInt();
+		int height = QueryValue(query, "height").toInt();
 		if (multiview && (width <= 0 || height <= 0)) {
 			width = 1280;
 			height = 720;
@@ -319,7 +331,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 
 		/* A caller may pin the tile order (and selection) explicitly. */
 		QStringList sceneList;
-		const QString scenes = query.queryItemValue("scenes");
+		const QString scenes = QueryValue(query, "scenes");
 		if (multiview && !scenes.isEmpty()) {
 			sceneList = scenes.split(',', Qt::SkipEmptyParts);
 		}
@@ -370,8 +382,8 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 
 	/* --- file access (recordings, logs, settings) -------------------------- */
 	if (path == "/api/files/list") {
-		const QString kind = query.queryItemValue("kind");
-		QJsonObject listing = WebMixBridge::ListDirectory(kind, query.queryItemValue("path"));
+		const QString kind = QueryValue(query, "kind");
+		QJsonObject listing = WebMixBridge::ListDirectory(kind, QueryValue(query, "path"));
 		if (listing.contains("error")) {
 			SendJson(socket, QJsonDocument(listing).toJson(QJsonDocument::Compact), 400);
 			return;
@@ -381,8 +393,8 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 	}
 
 	if (path == "/api/files/text") {
-		const QString kind = query.queryItemValue("kind");
-		const QString file = query.queryItemValue("path");
+		const QString kind = QueryValue(query, "kind");
+		const QString file = QueryValue(query, "path");
 		QString text;
 		QString error;
 		const int limit = QueryIntOr(query, "limit", 128 * 1024);
@@ -395,8 +407,8 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 	}
 
 	if (path == "/api/files/download") {
-		const QString kind = query.queryItemValue("kind");
-		const QString name = query.queryItemValue("path");
+		const QString kind = QueryValue(query, "kind");
+		const QString name = QueryValue(query, "path");
 		QString filePath;
 		QString error;
 		if (!WebMixBridge::ResolveFileForDownload(kind, name, filePath, error)) {
@@ -464,7 +476,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		int status = 200;
 
 		if (path == "/api/remux/add") {
-			QString format = query.queryItemValue("format");
+			QString format = QueryValue(query, "format");
 			if (format.isEmpty()) {
 				format = QStringLiteral("mp4");
 			}
@@ -473,9 +485,9 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 			QString source;
 			QString target;
 			bool conflict = false;
-			ok = WebMixRemux::Add(query.queryItemValue("path"), format,
-					      query.queryItemValue("overwrite") == QLatin1String("1"), id, source,
-					      target, conflict, error);
+			ok = WebMixRemux::Add(QueryValue(query, "path"), format,
+					      QueryValue(query, "overwrite") == QLatin1String("1"), id, source, target,
+					      conflict, error);
 			if (ok) {
 				result["id"] = id;
 				result["source"] = source;
@@ -536,21 +548,20 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		QString error;
 		bool ok = false;
 		if (path == "/api/hotkeys/bind") {
-			ok = WebMixBridge::SetHotkeyBinding(query.queryItemValue("name"), query.queryItemValue("key"),
-							    query.queryItemValue("modifiers"), error);
+			ok = WebMixBridge::SetHotkeyBinding(QueryValue(query, "name"), QueryValue(query, "key"),
+							    QueryValue(query, "modifiers"), error);
 		} else if (path == "/api/hotkeys/clear") {
-			ok = WebMixBridge::ClearHotkeyBinding(query.queryItemValue("name"), error);
+			ok = WebMixBridge::ClearHotkeyBinding(QueryValue(query, "name"), error);
 		} else if (path == "/api/scenes/move") {
-			ok = WebMixBridge::MoveScene(query.queryItemValue("from").toInt(),
-						     query.queryItemValue("to").toInt(), error);
+			ok = WebMixBridge::MoveScene(QueryValue(query, "from").toInt(), QueryValue(query, "to").toInt(),
+						     error);
 		} else if (path == "/api/transitions/add") {
-			ok = WebMixBridge::AddTransition(query.queryItemValue("kind"), query.queryItemValue("name"),
-							 error);
+			ok = WebMixBridge::AddTransition(QueryValue(query, "kind"), QueryValue(query, "name"), error);
 		} else if (path == "/api/transitions/rename") {
-			ok = WebMixBridge::RenameTransition(query.queryItemValue("name"),
-							    query.queryItemValue("newName"), error);
+			ok = WebMixBridge::RenameTransition(QueryValue(query, "name"), QueryValue(query, "newName"),
+							    error);
 		} else if (path == "/api/transitions/remove") {
-			ok = WebMixBridge::RemoveTransition(query.queryItemValue("name"), error);
+			ok = WebMixBridge::RemoveTransition(QueryValue(query, "name"), error);
 		} else {
 			SendError(socket, 404, "Unknown endpoint");
 			return;
@@ -569,9 +580,9 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 	/* --- property schema (the WebMIX bridge) ------------------------------- */
 	if (path == "/api/properties/press" && method == "POST") {
 		QString error;
-		const bool ok = WebMixBridge::PressButton(query.queryItemValue("scope"), query.queryItemValue("name"),
-							  query.queryItemValue("filter"),
-							  query.queryItemValue("property"), error);
+		const bool ok = WebMixBridge::PressButton(QueryValue(query, "scope"), QueryValue(query, "name"),
+							  QueryValue(query, "filter"), QueryValue(query, "property"),
+							  error);
 		QJsonObject result;
 		result["ok"] = ok;
 		if (!ok) {
@@ -584,12 +595,12 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 	if (path.startsWith("/api/properties/")) {
 		QJsonObject result;
 		if (path == "/api/properties/source") {
-			result = WebMixBridge::SourceProperties(query.queryItemValue("name"));
+			result = WebMixBridge::SourceProperties(QueryValue(query, "name"));
 		} else if (path == "/api/properties/filter") {
-			result = WebMixBridge::FilterProperties(query.queryItemValue("source"),
-								query.queryItemValue("filter"));
+			result = WebMixBridge::FilterProperties(QueryValue(query, "source"),
+								QueryValue(query, "filter"));
 		} else if (path == "/api/properties/transition") {
-			result = WebMixBridge::TransitionProperties(query.queryItemValue("name"));
+			result = WebMixBridge::TransitionProperties(QueryValue(query, "name"));
 		} else {
 			SendError(socket, 404, "Unknown properties endpoint");
 			return;
@@ -609,7 +620,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		/* Stopping mid-remux leaves a partial file, so the UI has to ask
 		 * first and then say so explicitly. */
 		const int activeRemux = WebMixRemux::ActiveCount();
-		if (activeRemux > 0 && query.queryItemValue("force") != QLatin1String("1")) {
+		if (activeRemux > 0 && QueryValue(query, "force") != QLatin1String("1")) {
 			QJsonObject result;
 			result["ok"] = false;
 			result["activeRemux"] = activeRemux;

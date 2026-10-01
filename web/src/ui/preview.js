@@ -118,6 +118,7 @@ export class PreviewPanel {
           }
           surface.renderer = renderer;
           this.#startStream(surface);
+          this.#watchWebgpu(surface);
         });
       } else {
         frame.addEventListener('click', () => {
@@ -202,6 +203,26 @@ export class PreviewPanel {
         if (this.running) this.#report(err, true);
       },
     });
+  }
+
+  /*!
+   * Some browsers create a WebGPU device and then paint nothing - the preview
+   * stays empty with no error anywhere. If no frame has been drawn a few
+   * seconds after the stream started, drop to the screenshot backend, which
+   * needs no GPU at all.
+   */
+  #watchWebgpu(surface) {
+    setTimeout(() => {
+      if (!this.useWebgpu || !this.surfaces.includes(surface)) return;
+      if ((surface.drawn ?? 0) > 0) return;
+      console.warn(
+        '[WebMIX] WebGPU drew no frames; falling back to the screenshot preview',
+        surface.lastError ?? ''
+      );
+      this.useWebgpu = false;
+      this.#buildSurfaces();
+      this.#schedule(0);
+    }, 3000);
   }
 
   #restartStreamsIfNeeded() {
