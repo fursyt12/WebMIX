@@ -1,0 +1,66 @@
+# WebMIX @VERSION@
+
+OBS Studio with a browser frontend: the whole interface (preview, scenes,
+sources, filters, audio, transitions, outputs, settings, hotkeys, files, remux)
+is served by OBS itself and used from any browser, on this machine or across the
+network. The preview is rendered with **WebGPU** from frames OBS encodes in
+process, and the "OBS did not shut down properly" safe-mode dialog no longer
+stops an unattended start.
+
+## Downloads
+
+| Platform | File | Install |
+| --- | --- | --- |
+| Windows 10/11 (x64) | `webmix-@VERSION@-windows-x64.zip` | Unpack anywhere and run `bin/64bit/obs.exe --web` (or just `obs.exe` for the normal desktop UI). |
+| Debian / Ubuntu | `webmix_@VERSION@_amd64.deb` | `sudo apt install ./webmix_@VERSION@_amd64.deb` |
+| Debug symbols (Linux) | `webmix-dbgsym_@VERSION@_amd64.ddeb` | `sudo apt install ./webmix-dbgsym_@VERSION@_amd64.ddeb` |
+| Arch Linux | `webmix-@VERSION@-1-x86_64.pkg.tar.zst` | `sudo pacman -U webmix-@VERSION@-1-x86_64.pkg.tar.zst` |
+| Arch Linux (repository) | `webmix.db`, `webmix.files`, `add-repo.sh` | `./add-repo.sh --install` |
+
+Every asset is listed in `SHA256SUMS`.
+
+### Arch Linux repository
+
+The release doubles as a pacman repository, so `pacman -Syu` keeps WebMIX
+up to date:
+
+```bash
+curl -LO https://github.com/fursyt12/WebMIX/releases/latest/download/add-repo.sh
+chmod +x add-repo.sh
+./add-repo.sh --install          # adds [webmix] to /etc/pacman.conf and installs
+```
+
+The repository is **not signed** (`SigLevel = Optional TrustAll`), because the
+packages are built by GitHub Actions without a maintainer key. If that matters
+to you, verify the `SHA256SUMS` from this release, or build the package yourself
+with `packaging/arch/PKGBUILD`.
+
+## Running it
+
+```bash
+webmix --web                  # http://127.0.0.1:4460/
+webmix --web --web-host 0.0.0.0   # reachable from the LAN
+obs --web                     # same thing; webmix is a symlink to obs
+```
+
+`--web` implies `--disable-missing-files-check`, keeps the window hidden, creates
+no tray icon and enables obs-websocket so the page can connect. Add
+`WebMode=true` to `[General]` in `global.ini` to make it the default, and
+`--startrecording` / `--startstreaming` to start an output immediately.
+
+The interface is unauthenticated by design and the page carries the
+obs-websocket password, so bind it to loopback (the default) unless the network
+is trusted.
+
+## Notes on this build
+
+* Browser Source (CEF) and the Lua/Python script hosts are **not** built: the
+  browser *is* the UI, and both remove a large amount of code and dependencies.
+  Rebuild with `-DENABLE_BROWSER=ON -DENABLE_SCRIPTING=ON` to get them back.
+* The package is named `webmix` and provides/conflicts with `obs-studio`, so it
+  can be installed next to (or instead of) your distribution's OBS. It installs
+  `/usr/bin/obs` plus a `/usr/bin/webmix` symlink and a WebMIX launcher.
+* Uploading logs to obsproject.com, the Plugin Manager and the Auto-Configuration
+  Wizard are still desktop-only; the rest of the menu tree works.
+
+Full documentation: <https://github.com/fursyt12/WebMIX/blob/master/web/README.md>

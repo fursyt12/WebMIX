@@ -1,0 +1,216 @@
+name: Release
+
+# Builds WebMIX 0.1.0-style releases for Windows, Debian/Ubuntu (.deb) and Arch
+# Linux (package + pacman repository) and publishes them as GitHub release
+# assets.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# pushes a tag, which builds everything and creates the release. The manual
+# trigger builds the same artifacts without publishing unless "publish" is set,
+# which is the way to check a change to this workflow.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build (without the leading "v")
+        required: true
+        default: '0.1.0'
+      publish:
+        description: Create/update the GitHub release with the artifacts
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version 🔖
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Read the version 📖
+        id: version
+        run: |
+          : Read the version 📖
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::'${version}' is not a version number"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Building WebMIX ${version}" >> "$GITHUB_STEP_SUMMARY"
+
+  deb:
+    name: Debian/Ubuntu 📦
+    runs-on: ubuntu-26.04
+    needs: version
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install build dependencies 🛍️
+        run: |
+          : Install build dependencies 🛍️
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ccache cmake curl dh-cmake dpkg-dev extra-cmake-modules git jq \
+            libglib2.0-dev lsb-release ninja-build pkg-config \
+            libcurl4-openssl-dev \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev \
+            libjansson-dev libx11-xcb-dev libgles2-mesa-dev libwayland-dev \
+            libpipewire-0.3-dev libpulse-dev libx264-dev libmbedtls-dev libgl1-mesa-dev \
+            uthash-dev libsimde-dev libluajit-5.1-dev python3-dev \
+            libx11-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xinerama0-dev \
+            libxcb-composite0-dev libxinerama-dev libxcb1-dev libxcb-xfixes0-dev \
+            swig libcmocka-dev libxss-dev libglvnd-dev \
+            libxkbcommon-dev libatk1.0-dev libatk-bridge2.0-dev libxcomposite-dev \
+            libxdamage-dev libasound2-dev libfdk-aac-dev libfontconfig-dev \
+            libfreetype6-dev libjack-jackd2-dev libsndio-dev libspeexdsp-dev \
+            libudev-dev libv4l-dev libva-dev libpci-dev libdrm-dev \
+            nlohmann-json3-dev libwebsocketpp-dev libasio-dev libqrcodegencpp-dev \
+            librist-dev libsrt-openssl-dev \
+            qt6-base-dev libqt6svg6-dev qt6-base-private-dev \
+            libvpl-dev libvpl2
+
+      - name: Configure 🛠️
+        run: |
+          : Configure 🛠️
+          cmake --preset ubuntu-ci \
+            -DOBS_VERSION_OVERRIDE=${{ needs.version.outputs.version }} \
+            -DWEBMIX_PACKAGE_NAME=webmix \
+            -DENABLE_BROWSER=OFF \
+            -DENABLE_SCRIPTING=OFF \
+            -DENABLE_VLC=OFF
+
+      - name: Build 🧱
+        run: |
+          : Build 🧱
+          cmake --build build_ubuntu --parallel
+
+      - name: Package 📀
+        run: |
+          : Package 📀
+          packaging/deb/package-deb.sh build_ubuntu dist
+
+      - name: Upload artifacts 📡
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*
+          if-no-files-found: error
+
+  arch:
+    name: Arch Linux 🐧
+    runs-on: ubuntu-24.04
+    needs: version
+    container:
+      image: archlinux:latest
+      options: --user root
+    steps:
+      - name: Prepare the build user 👤
+        run: |
+          : Prepare the build user 👤
+          pacman -Syu --noconfirm --needed base-devel git sudo
+          useradd --create-home builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Build the package and the repository 🧱
+        run: |
+          : Build the package and the repository 🧱
+          # makepkg refuses to run as root, and the checkout is owned by root.
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+          su builder -c "cd '${GITHUB_WORKSPACE}' && packaging/arch/build-package.sh '${GITHUB_WORKSPACE}/dist'"
+
+      - name: Upload artifacts 📡
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: |
+            dist/webmix-*.pkg.tar.zst
+            dist/webmix.db
+            dist/webmix.db.tar.gz
+            dist/webmix.files
+            dist/webmix.files.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows 🪟
+    runs-on: windows-2025-vs2026
+    needs: version
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure 🛠️
+        env:
+          GPU_PRIORITY_VAL: '2'
+        run: |
+          cmake --preset windows-ci-x64 `
+            -DOBS_VERSION_OVERRIDE=${{ needs.version.outputs.version }} `
+            -DWEBMIX_PACKAGE_NAME=webmix `
+            -DENABLE_BROWSER=OFF `
+            -DENABLE_SCRIPTING=OFF
+
+      - name: Build 🧱
+        run: cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
+
+      - name: Install 📥
+        run: cmake --install build_x64 --prefix build_x64/install --config RelWithDebInfo
+
+      - name: Package 📀
+        run: pwsh -File packaging/windows/package.ps1 -BuildDir build_x64 -OutDir dist -Configuration RelWithDebInfo
+
+      - name: Upload artifacts 📡
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish 🚀
+    runs-on: ubuntu-24.04
+    needs: [version, deb, arch, windows]
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the artifacts 📥
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Publish 🚀
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: packaging/publish-release.sh "${VERSION}" dist

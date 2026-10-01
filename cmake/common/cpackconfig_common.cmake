@@ -3,7 +3,17 @@
 include_guard(GLOBAL)
 
 # Set default global CPack variables
-set(CPACK_PACKAGE_NAME obs-studio)
+#
+# WebMIX: releases are packaged as `webmix` so they can be installed next to the
+# distribution's own obs-studio instead of fighting it over the version number
+# (a fork built as 0.1.0 would otherwise be "older" than obs-studio 32.x and get
+# replaced by it on the next system upgrade). Builds that do not set
+# WEBMIX_PACKAGE_NAME keep the upstream name.
+if(NOT DEFINED WEBMIX_PACKAGE_NAME)
+  set(WEBMIX_PACKAGE_NAME "obs-studio")
+endif()
+
+set(CPACK_PACKAGE_NAME "${WEBMIX_PACKAGE_NAME}")
 set(CPACK_PACKAGE_VENDOR "${OBS_WEBSITE}")
 set(CPACK_PACKAGE_HOMEPAGE_URL "${OBS_WEBSITE}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${OBS_COMMENTS}")

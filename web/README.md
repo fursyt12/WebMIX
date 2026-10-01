@@ -323,6 +323,28 @@ The browser frontend is now served by OBS itself in `--web` mode
 control endpoints), so an installed OBS needs nothing else. `node server.mjs`
 remains as the development/remote option.
 
+## Packaged releases
+
+GitHub releases carry ready-made packages built by
+`.github/workflows/release.yml` (Windows zip, Debian/Ubuntu `.deb`, Arch Linux
+package plus a pacman repository). They are configured exactly like the test
+suites (no CEF, no Lua/Python script hosts) and install the same layout as a
+source build: `/usr/bin/obs` with a `/usr/bin/webmix` symlink, the plugins under
+`/usr/lib/obs-plugins` and this directory under `/usr/share/obs-studio/web`, so
+the WebGPU preview and every bridge endpoint work straight after installing.
+
+```bash
+webmix --web              # http://127.0.0.1:4460/
+```
+
+See `packaging/README.md` for how to build each package yourself; Arch users can
+add the repository once and then just use pacman:
+
+```bash
+curl -LO https://github.com/fursyt12/WebMIX/releases/latest/download/add-repo.sh
+chmod +x add-repo.sh && ./add-repo.sh --install
+```
+
 ## Building the OBS fork (Linux)
 
 Current Arch packages are missing or too new for several of this checkout's

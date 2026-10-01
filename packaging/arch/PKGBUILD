@@ -1,0 +1,82 @@
+# Maintainer: WebMIX <yt.wilde.simon@gmail.com>
+#
+# WebMIX: OBS Studio with a browser frontend. The package installs the same
+# layout as the .deb and the Windows zip: /usr/bin/obs plus a /usr/bin/webmix
+# symlink, the plugins under /usr/lib/obs-plugins and the web frontend under
+# /usr/share/obs-studio/web.
+#
+# It provides and conflicts with obs-studio on purpose: only one of the two can
+# own /usr/bin/obs, and 0.1.0 would otherwise look like an old obs-studio to
+# pacman and be replaced on the next system upgrade.
+
+pkgname=webmix
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='OBS Studio with the WebMIX browser interface (control OBS from any browser)'
+arch=('x86_64')
+url='https://github.com/fursyt12/WebMIX'
+license=('GPL-2.0-only')
+depends=(
+  'ffmpeg' 'jansson' 'libxinerama' 'libxkbcommon-x11' 'mbedtls3' 'rnnoise'
+  'pciutils' 'qt6-svg' 'curl' 'jack' 'pipewire' 'libxcomposite'
+  'libdatachannel' 'uthash' 'simde' 'qrcodegencpp-cmake' 'python' 'luajit'
+)
+optdepends=(
+  'libfdk-aac: FDK AAC codec support'
+  'libva-intel-driver: hardware encoding for older Intel GPUs'
+  'intel-media-driver: hardware encoding for recent Intel GPUs'
+  'libva-mesa-driver: hardware encoding'
+  'sndio: Sndio input client'
+  'v4l2loopback-dkms: virtual camera support'
+  'xdg-desktop-portal-impl: Wayland window/screen capture'
+)
+makedepends=(
+  'base-devel' 'cmake' 'ninja' 'git' 'pkgconf' 'python' 'swig' 'qt6-tools'
+  'qt6-base' 'qt6-svg' 'wayland' 'wayland-protocols' 'libxkbcommon'
+  'libx11' 'libxcb' 'libxcb-randr' 'libxcb-shm' 'libxcb-xinerama'
+  'libxcb-composite' 'libxcb-xfixes' 'libxss' 'libxcomposite' 'libxdamage'
+  'libxrandr' 'libxfixes' 'libxi' 'libxinerama' 'libxkbcommon-x11'
+  'libglvnd' 'mesa' 'alsa-lib' 'libpulse' 'libsndio' 'speexdsp' 'libv4l'
+  'libva' 'libdrm' 'libpciaccess' 'libfdk-aac' 'mbedtls3' 'pciutils'
+  'nlohmann-json' 'websocketpp' 'asio' 'qrcodegencpp-cmake' 'uthash' 'simde'
+  'rnnoise' 'libdatachannel' 'pipewire' 'jack' 'jansson' 'curl' 'ffmpeg'
+)
+provides=('obs-studio')
+conflicts=('obs-studio')
+options=('!emptydirs')
+
+# The tag is built from the repository itself, because a GitHub tag tarball does
+# not carry the obs-websocket submodule the build needs.
+source=("webmix::git+${url}.git#tag=v${pkgver}")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "${pkgname}"
+  git submodule update --init --recursive
+}
+
+build() {
+  cd "${pkgname}"
+
+  # Same configuration the WebMIX test suites run against: the browser frontend
+  # is the UI, so CEF (Browser Source) and the Lua/Python script hosts are not
+  # built. Add -DENABLE_BROWSER=ON / -DENABLE_SCRIPTING=ON to get them back.
+  cmake -S . -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DOBS_VERSION_OVERRIDE="${pkgver}" \
+    -DWEBMIX_PACKAGE_NAME=webmix \
+    -DENABLE_BROWSER=OFF \
+    -DENABLE_SCRIPTING=OFF \
+    -DENABLE_VLC=OFF \
+    -DENABLE_AJA=OFF \
+    -Wno-dev
+
+  cmake --build build --parallel
+}
+
+package() {
+  cd "${pkgname}"
+  DESTDIR="${pkgdir}" cmake --install build
+}

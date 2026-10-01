@@ -1,0 +1,8 @@
+# Labels actionlint does not know about.
+#
+# ubuntu-26.04 is the GitHub-hosted image the upstream OBS workflows (and
+# .github/workflows/release.yml here) build the Debian/Ubuntu package on; the
+# label list shipped with actionlint predates it.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
