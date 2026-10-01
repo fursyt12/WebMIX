@@ -32,8 +32,10 @@ permissions:
   contents: write
 
 concurrency:
+  # Re-tagging the same version (a fixed build) supersedes the older run instead
+  # of queueing behind it.
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   version:
