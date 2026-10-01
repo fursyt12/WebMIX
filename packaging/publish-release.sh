@@ -16,7 +16,8 @@ set -euo pipefail
 
 version="${1:?usage: publish-release.sh <version> <dist-dir>}"
 dist="${2:?usage: publish-release.sh <version> <dist-dir>}"
-tag="v${version}"
+# Tags carry no "v" prefix (OBS's own CI rejects it); see packaging/README.md.
+tag="${version}"
 repo="${GITHUB_REPOSITORY:-fursyt12/WebMIX}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

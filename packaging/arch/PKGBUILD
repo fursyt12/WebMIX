@@ -47,8 +47,9 @@ conflicts=('obs-studio')
 options=('!emptydirs')
 
 # The tag is built from the repository itself, because a GitHub tag tarball does
-# not carry the obs-websocket submodule the build needs.
-source=("webmix::git+${url}.git#tag=v${pkgver}")
+# not carry the obs-websocket submodule the build needs. Tags carry no "v"
+# prefix: OBS's own CI derives its version from the tag and rejects "v0.1.0".
+source=("webmix::git+${url}.git#tag=${pkgver}")
 sha256sums=('SKIP')
 
 prepare() {
