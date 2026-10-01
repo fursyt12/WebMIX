@@ -32,13 +32,15 @@ optdepends=(
 )
 makedepends=(
   'base-devel' 'cmake' 'ninja' 'git' 'pkgconf' 'python' 'swig' 'qt6-tools'
-  'qt6-base' 'qt6-svg' 'wayland' 'wayland-protocols' 'libxkbcommon'
+  'extra-cmake-modules' 'qt6-base' 'qt6-svg' 'qt6-wayland' 'wayland'
+  'wayland-protocols' 'libxkbcommon'
   'libx11' 'libxcb' 'libxss' 'libxcomposite' 'libxdamage'
   'libxrandr' 'libxfixes' 'libxi' 'libxinerama' 'libxkbcommon-x11'
   'libglvnd' 'mesa' 'alsa-lib' 'libpulse' 'sndio' 'speexdsp' 'v4l-utils'
   'libva' 'libdrm' 'libpciaccess' 'libfdk-aac' 'mbedtls3' 'pciutils'
   'nlohmann-json' 'websocketpp' 'asio' 'qrcodegencpp-cmake' 'uthash' 'simde'
   'rnnoise' 'libdatachannel' 'pipewire' 'jack2' 'jansson' 'curl' 'ffmpeg'
+  'x264' 'librist' 'srt' 'libvpl' 'libusb' 'libpipewire' 'ffnvcodec-headers'
 )
 provides=('obs-studio')
 conflicts=('obs-studio')
@@ -60,8 +62,16 @@ build() {
   # Same configuration the WebMIX test suites run against: the browser frontend
   # is the UI, so CEF (Browser Source) and the Lua/Python script hosts are not
   # built. Add -DENABLE_BROWSER=ON / -DENABLE_SCRIPTING=ON to get them back.
+  # Arch installs MbedTLS 3's CMake package under a versioned prefix, which is
+  # not on CMake's search path.
+  local mbedtls_dir=()
+  if [[ -d /usr/lib/mbedtls3/cmake/MbedTLS ]]; then
+    mbedtls_dir+=(-DMbedTLS_DIR=/usr/lib/mbedtls3/cmake/MbedTLS)
+  fi
+
   cmake -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
+    "${mbedtls_dir[@]}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_INSTALL_LIBDIR=lib \
     -DOBS_VERSION_OVERRIDE="${pkgver}" \

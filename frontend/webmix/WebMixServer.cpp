@@ -127,8 +127,15 @@ QString WebMixServer::ResolveWebRoot()
 
 	const QString appDir = QCoreApplication::applicationDirPath();
 	candidates << appDir + "/web";
-	candidates << appDir + "/../share/obs-studio/web";
+	/* Windows packages: bin/64bit/obs.exe with the data under <root>/data
+	 * (OBS_DATA_DESTINATION), so the web frontend sits next to obs-plugins. */
+	candidates << appDir + "/../../data/obs-studio/web";
+	candidates << appDir + "/../data/obs-studio/web";
 	candidates << appDir + "/data/web";
+	/* Linux packages: /usr/bin/obs with <prefix>/share/obs-studio/web. */
+	candidates << appDir + "/../share/obs-studio/web";
+	/* macOS app bundles keep it in Contents/Resources/data. */
+	candidates << appDir + "/../Resources/data/obs-studio/web";
 
 	for (const QString &candidate : candidates) {
 		const QFileInfo info(candidate);

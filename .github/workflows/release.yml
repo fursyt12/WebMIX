@@ -96,7 +96,10 @@ jobs:
       - name: Configure 🛠️
         run: |
           : Configure 🛠️
+          # /usr, not CMake's default /usr/local: a distribution package must
+          # not install into the admin's prefix.
           cmake --preset ubuntu-ci \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             -DOBS_VERSION_OVERRIDE=${{ needs.version.outputs.version }} \
             -DWEBMIX_PACKAGE_NAME=webmix \
             -DENABLE_BROWSER=OFF \
@@ -118,11 +121,14 @@ jobs:
           : Verify the package 🔎
           deb="$(ls dist/webmix_*_amd64.deb)"
           dpkg-deb -I "${deb}" >/dev/null
-          dpkg-deb -c "${deb}" | grep -q 'usr/bin/obs$'
-          dpkg-deb -c "${deb}" | grep -q 'usr/bin/webmix -> obs'
-          dpkg-deb -c "${deb}" | grep -q 'usr/share/obs-studio/web/index.html'
-          dpkg-deb -c "${deb}" | grep -q 'usr/lib/x86_64-linux-gnu/obs-plugins/obs-websocket.so'
-          echo "${deb} contains obs, the webmix launcher and the web frontend"
+          dpkg-deb -c "${deb}" >contents.txt
+          grep -q 'usr/bin/obs$' contents.txt
+          grep -q 'usr/bin/webmix -> obs' contents.txt
+          grep -q 'usr/share/obs-studio/web/index.html' contents.txt
+          # The plugin directory name depends on the OBS version (obs-modules
+          # after the 33.0 rename), so only the file name is asserted.
+          grep -qE '/obs-websocket\.so$' contents.txt
+          echo "${deb} contains obs, the webmix launcher, the web frontend and obs-websocket"
 
       - name: Upload artifacts 📡
         uses: actions/upload-artifact@v4
@@ -166,6 +172,7 @@ jobs:
           pacman -Qlp "${pkg}" | grep -q 'usr/bin/obs$'
           pacman -Qlp "${pkg}" | grep -q 'usr/bin/webmix'
           pacman -Qlp "${pkg}" | grep -q 'usr/share/obs-studio/web/index.html'
+          pacman -Qlp "${pkg}" | grep -qE '/obs-websocket\.so$'
           tar -tzf dist/webmix.db.tar.gz | grep -q 'webmix-0.1.0'
           echo "${pkg} and the repository database look right"
 
@@ -218,7 +225,7 @@ jobs:
           $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
           try {
             $names = $archive.Entries | ForEach-Object { $_.FullName }
-            foreach ($needed in @('obs.exe', 'obs-websocket.dll', 'web/index.html')) {
+            foreach ($needed in @('obs.exe', 'obs-websocket.dll', 'data/obs-studio/web/index.html')) {
               if (-not ($names -like "*$needed")) { throw "$needed is missing from $($zip.Name)" }
             }
             Write-Host "$($zip.Name) contains obs.exe, obs-websocket and the web frontend"

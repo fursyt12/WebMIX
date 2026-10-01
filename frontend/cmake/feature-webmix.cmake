@@ -31,9 +31,18 @@ if(NOT DEFINED CMAKE_INSTALL_DATAROOTDIR)
   include(GNUInstallDirs)
 endif()
 
+# Windows installs OBS's data under <root>/data (bin/64bit/obs.exe reaches it as
+# ../../data), everywhere else under <prefix>/share. WebMixServer::ResolveWebRoot
+# knows both.
+if(WIN32)
+  set(WEBMIX_WEB_INSTALL_DIR "${OBS_DATA_DESTINATION}/obs-studio/web")
+else()
+  set(WEBMIX_WEB_INSTALL_DIR "${CMAKE_INSTALL_DATAROOTDIR}/obs-studio/web")
+endif()
+
 install(
   DIRECTORY "${CMAKE_SOURCE_DIR}/web/"
-  DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/obs-studio/web"
+  DESTINATION "${WEBMIX_WEB_INSTALL_DIR}"
   PATTERN "test" EXCLUDE
   PATTERN "tools" EXCLUDE
   PATTERN "node_modules" EXCLUDE
