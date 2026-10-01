@@ -16,9 +16,14 @@ writes a single `SHA256SUMS` and creates (or updates) the GitHub release with
 ## Releasing
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0      # builds all three platforms and publishes the release
+git tag 0.1.0
+git push origin 0.1.0       # builds all three platforms and publishes the release
 ```
+
+Tag without the `v` prefix: this repository keeps OBS's own CI workflows, and
+those derive their version from the tag with `git describe`, which turns a
+`v0.1.0` tag into the invalid CMake version `v0.1.0`. The release workflow itself
+accepts both spellings.
 
 `.github/workflows/release.yml` can also be started by hand (Actions → Release →
 Run workflow) with a version and a `publish` switch; without `publish` it only

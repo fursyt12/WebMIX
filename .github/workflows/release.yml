@@ -4,7 +4,7 @@ name: Release
 # Linux (package + pacman repository) and publishes them as GitHub release
 # assets.
 #
-#   git tag v0.1.0 && git push origin v0.1.0
+#   git tag 0.1.0 && git push origin 0.1.0
 #
 # pushes a tag, which builds everything and creates the release. The manual
 # trigger builds the same artifacts without publishing unless "publish" is set,
@@ -12,8 +12,11 @@ name: Release
 
 on:
   push:
+    # Both spellings: OBS's own CI derives its version from the tag and rejects a
+    # leading "v", so 0.1.0 is the tag to prefer, but v0.1.0 is accepted here too.
     tags:
       - 'v*'
+      - '[0-9]*'
   workflow_dispatch:
     inputs:
       version:
@@ -63,7 +66,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           fetch-depth: 0
@@ -96,9 +99,10 @@ jobs:
       - name: Configure 🛠️
         run: |
           : Configure 🛠️
+          source packaging/ci.sh
           # /usr, not CMake's default /usr/local: a distribution package must
           # not install into the admin's prefix.
-          cmake --preset ubuntu-ci \
+          ci_run cmake --preset ubuntu-ci \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DOBS_VERSION_OVERRIDE=${{ needs.version.outputs.version }} \
             -DWEBMIX_PACKAGE_NAME=webmix \
@@ -109,7 +113,8 @@ jobs:
       - name: Build 🧱
         run: |
           : Build 🧱
-          cmake --build build_ubuntu --parallel
+          source packaging/ci.sh
+          ci_run cmake --build build_ubuntu --parallel
 
       - name: Package 📀
         run: |
@@ -131,7 +136,7 @@ jobs:
           echo "${deb} contains obs, the webmix launcher, the web frontend and obs-websocket"
 
       - name: Upload artifacts 📡
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: deb
           path: dist/*
@@ -152,7 +157,7 @@ jobs:
           useradd --create-home builder
           echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           fetch-depth: 0
@@ -162,7 +167,8 @@ jobs:
           : Build the package and the repository 🧱
           # makepkg refuses to run as root, and the checkout is owned by root.
           chown -R builder:builder "${GITHUB_WORKSPACE}"
-          su builder -c "cd '${GITHUB_WORKSPACE}' && packaging/arch/build-package.sh '${GITHUB_WORKSPACE}/dist'"
+          source packaging/ci.sh
+          ci_run su builder -c "cd '${GITHUB_WORKSPACE}' && packaging/arch/build-package.sh '${GITHUB_WORKSPACE}/dist'"
 
       - name: Verify the package 🔎
         run: |
@@ -177,7 +183,7 @@ jobs:
           echo "${pkg} and the repository database look right"
 
       - name: Upload artifacts 📡
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: arch
           path: |
@@ -193,29 +199,65 @@ jobs:
     runs-on: windows-2025-vs2026
     needs: version
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Install build dependencies 🛍️
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path .github/scripts/utils.pwsh/*.ps1 -Recurse | ForEach-Object { . $_.FullName }
+          Install-BuildDependencies -WingetFile ".github/scripts/.Wingetfile"
+          # Install-BuildDependencies only extends this process' PATH; the build
+          # steps run in their own, so hand the directories to $GITHUB_PATH.
+          foreach ($tool in @('Cmake\bin', '7-Zip')) {
+            foreach ($prefix in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+              $path = Join-Path $prefix $tool
+              if (Test-Path $path) { $path | Out-File -FilePath $env:GITHUB_PATH -Append }
+            }
+          }
+          cmake --version
+
       - name: Configure 🛠️
+        shell: pwsh
         env:
           GPU_PRIORITY_VAL: '2'
         run: |
-          cmake --preset windows-ci-x64 `
-            -DOBS_VERSION_OVERRIDE=${{ needs.version.outputs.version }} `
-            -DWEBMIX_PACKAGE_NAME=webmix `
-            -DENABLE_BROWSER=OFF `
-            -DENABLE_SCRIPTING=OFF
+          . packaging/ci.ps1
+          $code = Invoke-CiCommand cmake @(
+            '--preset', 'windows-ci-x64',
+            '-DOBS_VERSION_OVERRIDE=${{ needs.version.outputs.version }}',
+            '-DWEBMIX_PACKAGE_NAME=webmix',
+            '-DENABLE_BROWSER=OFF',
+            '-DENABLE_SCRIPTING=OFF'
+          )
+          exit $code
 
       - name: Build 🧱
-        run: cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
+        shell: pwsh
+        run: |
+          . packaging/ci.ps1
+          exit (Invoke-CiCommand cmake @(
+            '--build', '--preset', 'windows-x64', '--config', 'RelWithDebInfo', '--parallel'
+          ))
 
       - name: Install 📥
-        run: cmake --install build_x64 --prefix build_x64/install --config RelWithDebInfo
+        shell: pwsh
+        run: |
+          . packaging/ci.ps1
+          exit (Invoke-CiCommand cmake @(
+            '--install', 'build_x64', '--prefix', 'build_x64/install', '--config', 'RelWithDebInfo'
+          ))
 
       - name: Package 📀
-        run: pwsh -File packaging/windows/package.ps1 -BuildDir build_x64 -OutDir dist -Configuration RelWithDebInfo
+        shell: pwsh
+        run: |
+          . packaging/ci.ps1
+          exit (Invoke-CiCommand pwsh @(
+            '-File', 'packaging/windows/package.ps1',
+            '-BuildDir', 'build_x64', '-OutDir', 'dist', '-Configuration', 'RelWithDebInfo'
+          ))
 
       - name: Verify the archive 🔎
         shell: pwsh
@@ -234,7 +276,7 @@ jobs:
           }
 
       - name: Upload artifacts 📡
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows
           path: dist/*
@@ -246,10 +288,10 @@ jobs:
     needs: [version, deb, arch, windows]
     if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download the artifacts 📥
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           merge-multiple: true
           path: dist
