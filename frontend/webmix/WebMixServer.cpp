@@ -50,6 +50,15 @@ namespace {
 
 constexpr int kMaxRequestBytes = 16 * 1024;
 
+/*! A positive integer query parameter, or `fallback` when it is missing or
+ *  nonsense (an absent parameter reads as 0).  The GNU `x ?: fallback`
+ *  shorthand would be shorter, but MSVC rejects it. */
+int QueryIntOr(const QUrlQuery &query, const char *name, int fallback)
+{
+	const int value = query.queryItemValue(name).toInt();
+	return value > 0 ? value : fallback;
+}
+
 const char *MimeForSuffix(const QString &suffix)
 {
 	if (suffix == "html" || suffix == "htm") {
@@ -306,7 +315,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 			width = 1280;
 			height = 720;
 		}
-		const int quality = qBound(1, query.queryItemValue("quality").toInt() ?: 75, 100);
+		const int quality = qBound(1, QueryIntOr(query, "quality", 75), 100);
 
 		/* A caller may pin the tile order (and selection) explicitly. */
 		QStringList sceneList;
@@ -344,7 +353,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 			return;
 		}
 
-		const int fps = qBound(1, query.queryItemValue("fps").toInt() ?: 15, 60);
+		const int fps = qBound(1, QueryIntOr(query, "fps", 15), 60);
 		/* The stream owns the socket from here on. */
 		disconnect(socket, nullptr, this, nullptr);
 		auto *stream = new WebMixPreview::Stream(socket, source, width, height, fps, quality, this,
@@ -376,7 +385,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		const QString file = query.queryItemValue("path");
 		QString text;
 		QString error;
-		const int limit = query.queryItemValue("limit").toInt() ?: (128 * 1024);
+		const int limit = QueryIntOr(query, "limit", 128 * 1024);
 		if (!WebMixBridge::ReadTextTail(kind, file, limit, text, error)) {
 			SendError(socket, 404, error);
 			return;

@@ -123,8 +123,8 @@ QJsonArray Hotkeys()
 			auto *list = static_cast<QVector<HotkeyEntry> *>(data);
 			HotkeyEntry entry;
 			entry.id = id;
-			entry.name = QString::fromUtf8(obs_hotkey_get_name(key) ?: "");
-			entry.description = QString::fromUtf8(obs_hotkey_get_description(key) ?: "");
+			entry.name = Utf8OrEmpty(obs_hotkey_get_name(key));
+			entry.description = Utf8OrEmpty(obs_hotkey_get_description(key));
 			list->append(entry);
 			return true;
 		},
@@ -148,7 +148,7 @@ QJsonArray Hotkeys()
 			struct dstr text = {0};
 			dstr_init(&text);
 			obs_key_combination_to_str(obs_hotkey_binding_get_key_combination(binding), &text);
-			(*ctx->first)[index].bindings.append(QString::fromUtf8(text.array ?: ""));
+			(*ctx->first)[index].bindings.append(Utf8OrEmpty(text.array));
 			dstr_free(&text);
 			return true;
 		},

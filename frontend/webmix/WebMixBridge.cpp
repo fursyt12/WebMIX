@@ -127,7 +127,7 @@ QJsonArray SerializeListItems(obs_property_t *property)
 
 	for (size_t i = 0; i < count; i++) {
 		QJsonObject item;
-		item["name"] = QString::fromUtf8(obs_property_list_item_name(property, i) ?: "");
+		item["name"] = Utf8OrEmpty(obs_property_list_item_name(property, i));
 		item["disabled"] = obs_property_list_item_disabled(property, i);
 
 		switch (format) {
@@ -141,7 +141,7 @@ QJsonArray SerializeListItems(obs_property_t *property)
 			item["value"] = obs_property_list_item_bool(property, i);
 			break;
 		default:
-			item["value"] = QString::fromUtf8(obs_property_list_item_string(property, i) ?: "");
+			item["value"] = Utf8OrEmpty(obs_property_list_item_string(property, i));
 			break;
 		}
 		items.append(item);
@@ -155,9 +155,8 @@ QJsonArray SerializeFrameRate(obs_property_t *property)
 	const size_t optionCount = obs_property_frame_rate_options_count(property);
 	for (size_t i = 0; i < optionCount; i++) {
 		QJsonObject option;
-		option["name"] = QString::fromUtf8(obs_property_frame_rate_option_name(property, i) ?: "");
-		option["description"] =
-			QString::fromUtf8(obs_property_frame_rate_option_description(property, i) ?: "");
+		option["name"] = Utf8OrEmpty(obs_property_frame_rate_option_name(property, i));
+		option["description"] = Utf8OrEmpty(obs_property_frame_rate_option_description(property, i));
 		options.append(option);
 	}
 	return options;
@@ -198,8 +197,9 @@ QJsonObject SerializeProperty(obs_property_t *property, obs_data_t *settings)
 	const enum obs_property_type type = obs_property_get_type(property);
 
 	QJsonObject out;
-	out["name"] = QString::fromUtf8(name ?: "");
-	out["label"] = QString::fromUtf8(obs_property_description(property) ?: (name ?: ""));
+	out["name"] = Utf8OrEmpty(name);
+	const char *description = obs_property_description(property);
+	out["label"] = Utf8OrEmpty(description ? description : name);
 	out["visible"] = obs_property_visible(property);
 	out["enabled"] = obs_property_enabled(property);
 
@@ -253,8 +253,8 @@ QJsonObject SerializeProperty(obs_property_t *property, obs_data_t *settings)
 	case OBS_PROPERTY_PATH:
 		out["type"] = "path";
 		out["pathType"] = PathTypeName(obs_property_path_type(property));
-		out["filter"] = QString::fromUtf8(obs_property_path_filter(property) ?: "");
-		out["defaultPath"] = QString::fromUtf8(obs_property_path_default_path(property) ?: "");
+		out["filter"] = Utf8OrEmpty(obs_property_path_filter(property));
+		out["defaultPath"] = Utf8OrEmpty(obs_property_path_default_path(property));
 		break;
 	case OBS_PROPERTY_LIST:
 		out["type"] = "list";
@@ -297,8 +297,8 @@ QJsonObject SerializeProperty(obs_property_t *property, obs_data_t *settings)
 			obs_property_editable_list_type(property) == OBS_EDITABLE_LIST_TYPE_STRINGS ? "strings"
 			: obs_property_editable_list_type(property) == OBS_EDITABLE_LIST_TYPE_FILES ? "files"
 												    : "filesAndUrls";
-		out["filter"] = QString::fromUtf8(obs_property_editable_list_filter(property) ?: "");
-		out["defaultPath"] = QString::fromUtf8(obs_property_editable_list_default_path(property) ?: "");
+		out["filter"] = Utf8OrEmpty(obs_property_editable_list_filter(property));
+		out["defaultPath"] = Utf8OrEmpty(obs_property_editable_list_default_path(property));
 		break;
 	case OBS_PROPERTY_FRAME_RATE:
 		out["type"] = "frameRate";
@@ -343,7 +343,7 @@ QJsonObject BuildPayload(obs_source_t *source, const QString &sourceName, const 
 		obs_properties_apply_settings(properties, settings);
 	}
 
-	result["kind"] = QString::fromUtf8(obs_source_get_id(source) ?: "");
+	result["kind"] = Utf8OrEmpty(obs_source_get_id(source));
 	result["properties"] = SerializePropertyList(properties, settings);
 
 	/* Current values, so the dialog can show what is actually set. */
@@ -369,8 +369,7 @@ QJsonObject BuildPayload(obs_source_t *source, const QString &sourceName, const 
 				break;
 			}
 			default:
-				values[QString::fromUtf8(name)] =
-					QString::fromUtf8(obs_data_item_get_string(item) ?: "");
+				values[QString::fromUtf8(name)] = Utf8OrEmpty(obs_data_item_get_string(item));
 				break;
 			}
 		}

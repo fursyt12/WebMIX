@@ -76,6 +76,14 @@ bool ResolveFileForDownload(const QString &kind, const QString &relative, QStrin
 /*! Read the tail of a text file (used for the log viewer). */
 bool ReadTextTail(const QString &kind, const QString &relative, int maxBytes, QString &text, QString &error);
 
+/*! A C string that may be null, as a QString.  OBS returns null for optional
+ *  strings, and the GNU `x ?: ""` shorthand used for it is a syntax error on
+ *  MSVC, so this evaluates the expression exactly once. */
+inline QString Utf8OrEmpty(const char *text)
+{
+	return text ? QString::fromUtf8(text) : QString();
+}
+
 /*! Serialize an obs_properties_t tree; exposed for reuse and testing. */
 QJsonObject SerializeProperties(void *properties, void *settings);
 
