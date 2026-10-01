@@ -41,10 +41,19 @@ if [[ ! -f "${PACMAN_CONF}" ]]; then
 	exit 1
 fi
 
+# Everything below needs root: use sudo when the config is not ours to write.
 sudo=""
 if [[ ! -w "${PACMAN_CONF}" ]]; then
 	sudo="sudo"
 fi
+
+as_root() {
+	if [[ -n "${sudo}" ]]; then
+		"${sudo}" "$@"
+	else
+		"$@"
+	fi
+}
 
 section() {
 	cat <<EOF
@@ -66,14 +75,14 @@ remove)
 		exit 0
 	fi
 	echo "Removing the ${REPO_NAME} repository from ${PACMAN_CONF}..."
-	"${sudo}" python3 - "${PACMAN_CONF}" <<'PY'
+	as_root python3 - "${PACMAN_CONF}" <<'PY'
 import re, sys
 path = sys.argv[1]
 text = open(path).read()
 text = re.sub(r"\n*# >>> webmix repository >>>.*?# <<< webmix repository <<<\n?", "\n", text, flags=re.S)
 open(path, "w").write(text)
 PY
-	"${sudo}" pacman -Sy
+	as_root pacman -Sy
 	echo "Done. The installed package was left alone; remove it with: sudo pacman -R webmix"
 	;;
 dry-run)
@@ -90,10 +99,10 @@ dry-run)
 		echo "The ${REPO_NAME} repository is already configured in ${PACMAN_CONF}."
 	else
 		echo "Adding the ${REPO_NAME} repository to ${PACMAN_CONF}..."
-		printf '%s' "$(section)" | "${sudo}" tee -a "${PACMAN_CONF}" >/dev/null
+		printf '%s' "$(section)" | as_root tee -a "${PACMAN_CONF}" >/dev/null
 	fi
 
-	"${sudo}" pacman -Sy
+	as_root pacman -Sy
 
 	# The database is fetched once so a typo in the URL fails here, with a clear
 	# message, instead of inside the install below.
@@ -106,7 +115,7 @@ dry-run)
 
 	if [[ "${mode}" == "install" ]]; then
 		echo
-		"${sudo}" pacman -S --needed "${REPO_NAME}"
+		as_root pacman -S --needed "${REPO_NAME}"
 	else
 		echo
 		echo "Install it with:  sudo pacman -S ${REPO_NAME}"

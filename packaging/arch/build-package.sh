@@ -40,8 +40,13 @@ cp -v "${pkg[@]}" "${out}/"
 
 cd "${out}"
 repo-add --quiet --new webmix.db.tar.gz "${pkg[@]}"
-cp -f webmix.db.tar.gz webmix.db
-cp -f webmix.files.tar.gz webmix.files
+
+# repo-add leaves webmix.db / webmix.files as symlinks to the .tar.gz files.
+# A GitHub release cannot carry symlinks, so replace them with real copies -
+# pacman accepts either name.
+rm -f webmix.db webmix.files
+cp webmix.db.tar.gz webmix.db
+cp webmix.files.tar.gz webmix.files
 
 echo
 echo "Repository ready in ${out}:"
