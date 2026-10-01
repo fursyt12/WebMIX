@@ -570,7 +570,7 @@ function pickFromList(title, label, values) {
       body: [h('label.obs-label', { text: label }), list],
       footer: dialogButtons([
         { label: 'Cancel', action: () => dialog.close() },
-        { label: 'OK', primary: true, action: () => { dialog.close(); resolve(selected); } },
+        { label: 'OK', primary: true, action: () => { resolve(selected); dialog.close(); } },
       ]),
       onClose: () => resolve(null),
     });

@@ -899,7 +899,7 @@ function buildUi() {
         body: [h('label.obs-label', { text: label }), input],
         footer: dialogButtons([
           { label: 'Cancel', action: () => dialog.close() },
-          { label: 'OK', primary: true, action: () => { dialog.close(); resolve(input.value.trim()); } },
+          { label: 'OK', primary: true, action: () => { resolve(input.value.trim()); dialog.close(); } },
         ]),
         onClose: () => resolve(null),
       });

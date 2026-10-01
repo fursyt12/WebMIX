@@ -504,6 +504,82 @@ try {
   });
   await delay(300);
 
+  // Add Source: the dialog must create the input. It used to close (running its
+  // onClose, which resolves null) before resolving with the chosen name, so every
+  // dialog that returned a value silently did nothing.
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('.obs-sources-panel button[title="Add Source"]')?.click()`,
+  });
+  await delay(700);
+  const { result: addDialogResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify((() => {
+      const dialog = [...document.querySelectorAll('.obs-dialog')].at(-1);
+      return {
+        title: dialog?.querySelector('.obs-dialog-title')?.textContent?.trim() ?? '',
+        kinds: [...(dialog?.querySelectorAll('.obs-source-kind-list .obs-list-item') ?? [])].map((li) => li.dataset.kind),
+      };
+    })())`,
+    returnByValue: true,
+  });
+  let addDialog = {};
+  try {
+    addDialog = JSON.parse(addDialogResult.value ?? '{}');
+  } catch { /* ignore */ }
+  check('Add Source dialog lists the input kinds', addDialog.title?.startsWith('Add Source') && (addDialog.kinds ?? []).length >= 3);
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const dialog = [...document.querySelectorAll('.obs-dialog')].at(-1);
+      dialog.querySelector('.obs-source-kind-list .obs-list-item[data-kind="image_source"]')?.click();
+      const input = dialog.querySelector('input.obs-input');
+      input.value = 'Smoke Source';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      [...dialog.querySelectorAll('.obs-dialog-footer button')].find((b) => b.textContent.trim() === 'Create New')?.click();
+    })()`,
+  });
+  await delay(900);
+  const { result: addedResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify({
+      listed: !!document.querySelector('[data-source-name="Smoke Source"]'),
+      stored: Object.keys(window.webmix.store.state.inputs).includes('Smoke Source'),
+      closed: ![...document.querySelectorAll('.obs-dialog')]
+        .some((d) => d.querySelector('.obs-dialog-title')?.textContent?.includes('Add Source')),
+    })`,
+    returnByValue: true,
+  });
+  let added = {};
+  try {
+    added = JSON.parse(addedResult.value ?? '{}');
+  } catch { /* ignore */ }
+  check('Add Source creates the input', added.listed === true && added.stored === true);
+  check('Add Source dialog closes after creating', added.closed === true);
+
+  // The same promise pattern powers prompt(): creating a scene must work too.
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('#dock-left .obs-scenes-panel button[title="Add Scene"]')?.click()`,
+  });
+  await delay(600);
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const input = [...document.querySelectorAll('.obs-dialog')].at(-1)?.querySelector('input.obs-input');
+      if (!input) return;
+      input.value = 'Smoke Scene';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      [...[...document.querySelectorAll('.obs-dialog')].at(-1).querySelectorAll('.obs-dialog-footer button')]
+        .find((b) => b.textContent.trim() === 'OK')?.click();
+    })()`,
+  });
+  await delay(900);
+  const { result: sceneResult } = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify({ scenes: (window.webmix.store.state.scenes ?? []).map((s) => s.sceneName) })`,
+    returnByValue: true,
+  });
+  let scenesNow = {};
+  try {
+    scenesNow = JSON.parse(sceneResult.value ?? '{}');
+  } catch { /* ignore */ }
+  check('prompt-based dialogs return their value (new scene)', (scenesNow.scenes ?? []).includes('Smoke Scene'));
+
   check('no uncaught page exceptions', pageErrors.length === 0);
   check('no console errors', consoleErrors.length === 0);
 

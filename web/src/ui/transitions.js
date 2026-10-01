@@ -220,8 +220,9 @@ export class TransitionsPanel {
             label: 'OK',
             primary: true,
             action: () => {
-              dialog.close();
+              // Resolve before closing: the dialog's onClose resolves null.
               resolve({ id: selected, display: selected.replace(/_transition$/, '').replace(/_/g, ' ') });
+              dialog.close();
             },
           },
         ]),

@@ -171,8 +171,11 @@ export function prompt({
         input.focus();
         return;
       }
-      dialog.close('ok');
+      // Resolve before closing: openDialog()'s onClose resolves null, and a
+      // settled promise ignores the later value, so closing first would make
+      // every prompt() return null.
       resolve(current);
+      dialog.close('ok');
     }
 
     input.addEventListener('keydown', (event) => {

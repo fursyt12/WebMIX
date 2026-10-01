@@ -228,16 +228,18 @@ export class SourcesPanel {
                   this.onStatus?.('Select a source to add', 'warning');
                   return;
                 }
-                dialog.close();
+                // Resolve first: closing the dialog runs its onClose, which
+                // resolves null and would win over this value.
                 resolve({ mode: 'existing', inputName: selectedExisting });
+                dialog.close();
               } else {
                 const name = nameInput.value.trim();
                 if (!name || !selectedKind) {
                   this.onStatus?.('Choose a source type and a name', 'warning');
                   return;
                 }
-                dialog.close();
                 resolve({ mode: 'new', inputName: name, inputKind: selectedKind });
+                dialog.close();
               }
             },
           },
