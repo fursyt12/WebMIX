@@ -241,6 +241,9 @@ function buildUi() {
   const store2 = store;
 
   const statusbar = new StatusBar({ store: store2, root: qs('#statusbar') });
+  /* Assigned just below; the preview's selection callback only runs later. */
+  let sourceToolbar = null;
+
   const preview = new PreviewPanel({
     store: store2,
     api,
@@ -249,9 +252,14 @@ function buildUi() {
     placeholder: qs('#preview-placeholder'),
     host,
     onContextAction: (action, payload) => handlePreviewAction(action, payload),
+    // Selecting in the preview selects in the docks, like OBS does.
+    onSelectSource: (name) => {
+      sources.select(name);
+      sourceToolbar?.setSelection?.(name);
+    },
   });
 
-  const sourceToolbar = new SourceToolbar({
+  sourceToolbar = new SourceToolbar({
     store: store2,
     api,
     root: qs('#source-toolbar'),
@@ -268,7 +276,10 @@ function buildUi() {
     store: store2,
     api,
     onStatus: (text, kind) => statusbar.showMessage(text, kind),
-    onSelectSource: (name) => sourceToolbar.setSelection(name),
+    onSelectSource: (name) => {
+      preview.select(name);
+      sourceToolbar.setSelection(name);
+    },
   });
 
   const mixer = new MixerPanel({
@@ -277,6 +288,7 @@ function buildUi() {
     onStatus: (text, kind) => statusbar.showMessage(text, kind),
     onSelectSource: (name) => {
       sources.select(name);
+      preview.select(name);
       sourceToolbar.setSelection(name);
     },
     onAdvancedAudio: () =>

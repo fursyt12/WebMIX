@@ -18,6 +18,7 @@
 import { h, clear, setClass } from '../dom.js';
 import { showContextMenu } from './dialog.js';
 import { WebGpuPreview, webgpuAvailable, openMjpegStream } from '../webgpu-preview.js';
+import { selectors } from '../store.js';
 
 const PREVIEW_FPS = 15;
 
@@ -32,14 +33,19 @@ export class PreviewPanel {
    * @param {object} [options.host]  result of detectHost(): enables the stream endpoint
    * @param {(action: string, payload?: any) => void} options.onContextAction
    */
-  constructor({ store, api, canvas, labels, placeholder, onContextAction, host = {} }) {
+  constructor({ store, api, canvas, labels, placeholder, onContextAction, onSelectSource, host = {} }) {
     this.store = store;
     this.api = api;
     this.canvas = canvas;
     this.labels = labels;
     this.placeholder = placeholder;
     this.onContextAction = onContextAction;
+    this.onSelectSource = onSelectSource;
     this.host = host;
+
+    /* Source selected in the preview: the name, and the item being dragged. */
+    this.selected = null;
+    this.drag = null;
 
     this.fps = 5; // screenshot fallback rate
     this.streamFps = PREVIEW_FPS;
@@ -101,11 +107,20 @@ export class PreviewPanel {
       });
       if (!studio) label.hidden = true;
 
-      const pane = h(`div.obs-preview-pane.is-${kind}`, {}, [label, frame]);
+      const selection = h(
+        'div.obs-preview-selection',
+        { hidden: true },
+        ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) =>
+          h(`div.obs-preview-handle.is-${dir}`, { dataset: { handle: dir } })
+        )
+      );
+      const pane = h(`div.obs-preview-pane.is-${kind}`, {}, [label, frame, selection]);
       this.canvas.appendChild(pane);
 
-      const surface = { kind, scene, pane, img: this.useWebgpu ? null : frame, canvas: this.useWebgpu ? frame : null };
+      const surface = { kind, scene, pane, frame, selection,
+        img: this.useWebgpu ? null : frame, canvas: this.useWebgpu ? frame : null };
       this.surfaces.push(surface);
+      this.#wireSelection(surface);
 
       if (this.useWebgpu) {
         WebGpuPreview.create(frame).then((renderer) => {
@@ -223,6 +238,269 @@ export class PreviewPanel {
       this.#buildSurfaces();
       this.#schedule(0);
     }, 3000);
+  }
+
+  /* ------------------------------------------------- preview interaction */
+
+  /** Selected source, e.g. when the Sources dock changes the selection. */
+  select(name) {
+    this.selected = name ?? null;
+    this.#renderSelection();
+  }
+
+  /*! Client coordinates -> scene pixels, or null when the point is outside. */
+  #scenePoint(surface, event) {
+    const box = surface.frame.getBoundingClientRect();
+    if (!box.width || !box.height) return null;
+
+    const video = this.store.state.video ?? {};
+    const baseWidth = video.baseWidth || 1920;
+    const baseHeight = video.baseHeight || 1080;
+
+    /* The frame is drawn with object-fit: contain, so the picture can be
+     * letterboxed inside the element; work in the picture's box. */
+    const scale = Math.min(box.width / baseWidth, box.height / baseHeight);
+    /* A pane that has not been laid out yet would turn a pixel of movement into
+     * hundreds of scene units; ignore the interaction instead. */
+    if (!(scale > 0.05)) return null;
+    const drawnWidth = baseWidth * scale;
+    const drawnHeight = baseHeight * scale;
+    const left = box.left + (box.width - drawnWidth) / 2;
+    const top = box.top + (box.height - drawnHeight) / 2;
+
+    const x = (event.clientX - left) / scale;
+    const y = (event.clientY - top) / scale;
+    if (x < 0 || y < 0 || x > baseWidth || y > baseHeight) return null;
+    return { x, y, scale, left, top, drawnWidth, drawnHeight };
+  }
+
+  /*! The item's transform: from the store when OBS reported a change, else the
+   *  one this panel fetched (GetSceneItemList carries no transforms). */
+  #transformFor(surface, item) {
+    const cached = this.transforms?.get(`${surface.scene}:${item.sceneItemId}`);
+    return item.sceneItemTransform ?? cached ?? null;
+  }
+
+  /*! Ask OBS for the transforms of this scene's items, once per item. */
+  #ensureTransforms(surface) {
+    this.transforms ??= new Map();
+    this.transformPending ??= new Set();
+    for (const item of selectors.sceneItems(this.store.state, surface.scene)) {
+      if (item.sceneItemTransform) continue;
+      const key = `${surface.scene}:${item.sceneItemId}`;
+      if (this.transformPending.has(key)) continue;
+      this.transformPending.add(key);
+      this.api
+        .getSceneItemTransform(surface.scene, item.sceneItemId)
+        .then((transform) => {
+          if (transform) {
+            this.transforms.set(key, transform);
+            this.#renderSelection();
+          }
+        })
+        .catch(() => { /* removed meanwhile */ })
+        .finally(() => this.transformPending.delete(key));
+    }
+  }
+
+  /*! The item's box in scene coordinates (rotation and crop are ignored). */
+  #itemBox(surface, item) {
+    const t = this.#transformFor(surface, item);
+    if (!t) return null;
+    const width = Math.abs(t.width * t.scaleX);
+    const height = Math.abs(t.height * t.scaleY);
+    const anchorX = t.alignment & 1 ? 0 : t.alignment & 2 ? 1 : 0.5;
+    const anchorY = t.alignment & 4 ? 0 : t.alignment & 8 ? 1 : 0.5;
+    return { left: t.positionX - anchorX * width, top: t.positionY - anchorY * height, width, height, anchorX, anchorY, transform: t };
+  }
+
+  #sceneItems(surface) {
+    return selectors.sceneItems(this.store.state, surface.scene);
+  }
+
+  /** Top-most item under a scene point (index 0 is the top of the list). */
+  #hitTest(surface, point) {
+    for (const item of this.#sceneItems(surface)) {
+      const box = this.#itemBox(surface, item);
+      if (!box || !item.sceneItemEnabled) continue;
+      if (point.x >= box.left && point.x <= box.left + box.width && point.y >= box.top && point.y <= box.top + box.height) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  #wireSelection(surface) {
+    const { pane } = surface;
+
+    pane.addEventListener('pointerdown', (event) => {
+      // A failure here must never break the preview (or the click-to-switch
+      // scene behaviour that also lives on this element).
+      try {
+        this.#beginDrag(surface, event);
+      } catch (err) {
+        console.warn('[WebMIX] preview interaction failed', err);
+      }
+    });
+
+    pane.addEventListener('pointermove', (event) => {
+      try {
+        this.#moveDrag(surface, event);
+      } catch (err) {
+        console.warn('[WebMIX] preview drag failed', err);
+        this.drag = null;
+      }
+    });
+
+    const finish = (event) => {
+      const drag = this.drag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      this.drag = null;
+      try { pane.releasePointerCapture(event.pointerId); } catch { /* already gone */ }
+    };
+    pane.addEventListener('pointerup', finish);
+    pane.addEventListener('pointercancel', finish);
+    pane.addEventListener('dblclick', () => this.onContextAction?.('transform', { source: this.selected }));
+  }
+
+  #beginDrag(surface, event) {
+    if (this.locked || event.button !== 0) return;
+    {
+      const point = this.#scenePoint(surface, event);
+      if (!point) return;
+      this.#ensureTransforms(surface);
+
+      const handle = event.target.closest('.obs-preview-handle')?.dataset.handle;
+      const item = handle
+        ? this.#sceneItems(surface).find((i) => i.sourceName === this.selected)
+        : this.#hitTest(surface, point);
+      if (!item) {
+        this.selected = null;
+        this.#renderSelection();
+        return;
+      }
+
+      this.selected = item.sourceName;
+      this.onSelectSource?.(item.sourceName);
+      this.#renderSelection();
+
+      const box = this.#itemBox(surface, item);
+      if (!box) return;
+      this.drag = {
+        surface,
+        pointerId: event.pointerId,
+        handle: handle ?? null,
+        sceneItemId: item.sceneItemId,
+        startX: point.x,
+        startY: point.y,
+        box,
+        pending: null,
+        sent: 0,
+      };
+      try {
+        surface.pane.setPointerCapture(event.pointerId);
+      } catch {
+        /* Synthetic or already-released pointers cannot be captured; the pane
+         * still receives the move events. */
+      }
+      event.preventDefault();
+    }
+  }
+
+  #moveDrag(surface, event) {
+    const drag = this.drag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    {
+      const point = this.#scenePoint(surface, event);
+      if (!point) return;
+
+      const dx = point.x - drag.startX;
+      const dy = point.y - drag.startY;
+      const patch = drag.handle ? this.#resizePatch(drag, dx, dy) : { positionX: drag.box.transform.positionX + dx, positionY: drag.box.transform.positionY + dy };
+
+      /* Draw immediately, then tell OBS; the next store update confirms it. */
+      drag.pending = patch;
+      this.#applyDrag(surface, drag);
+    }
+  }
+
+  /*! New scale/position for a handle drag, keeping the opposite side fixed. */
+  #resizePatch(drag, dx, dy) {
+    const { box, handle } = drag;
+    const t = box.transform;
+    let left = box.left;
+    let top = box.top;
+    let width = box.width;
+    let height = box.height;
+
+    if (handle.includes('w')) {
+      width = Math.max(4, box.width - dx);
+      left = box.left + (box.width - width);
+    } else if (handle.includes('e')) {
+      width = Math.max(4, box.width + dx);
+    }
+    if (handle.includes('n')) {
+      height = Math.max(4, box.height - dy);
+      top = box.top + (box.height - height);
+    } else if (handle.includes('s')) {
+      height = Math.max(4, box.height + dy);
+    }
+
+    return {
+      scaleX: (width / t.width) * Math.sign(t.scaleX || 1),
+      scaleY: (height / t.height) * Math.sign(t.scaleY || 1),
+      positionX: left + box.anchorX * width,
+      positionY: top + box.anchorY * height,
+    };
+  }
+
+  /*! Send a drag patch, at most a few times per second. */
+  #applyDrag(surface, drag) {
+    const now = performance.now();
+    if (drag.sent && now - drag.sent < 33) return;
+    drag.sent = now;
+    const patch = drag.pending;
+    if (!patch) return;
+    this.api
+      .setSceneItemTransform(surface.scene, drag.sceneItemId, { ...patch })
+      .catch((err) => this.#report(err, true));
+
+    /* Keep the overlay in step without waiting for the round trip. */
+    const item = this.#sceneItems(surface).find((i) => i.sceneItemId === drag.sceneItemId);
+    if (item?.sceneItemTransform) {
+      Object.assign(item.sceneItemTransform, patch);
+      this.#renderSelection();
+    }
+  }
+
+  /** Draw the selection rectangle and its handles over the selected item. */
+  #renderSelection() {
+    for (const surface of this.surfaces) {
+      const { selection, pane, frame } = surface;
+      if (!selection) continue;
+
+      const item = this.selected
+        ? this.#sceneItems(surface).find((i) => i.sourceName === this.selected)
+        : null;
+      const box = item && this.#itemBox(surface, item);
+      const frameBox = frame.getBoundingClientRect();
+      const paneBox = pane.getBoundingClientRect();
+      if (!box || !frameBox.width) {
+        selection.hidden = true;
+        continue;
+      }
+
+      const video = this.store.state.video ?? {};
+      const scale = Math.min(frameBox.width / (video.baseWidth || 1920), frameBox.height / (video.baseHeight || 1080));
+      const offsetX = frameBox.left - paneBox.left + (frameBox.width - (video.baseWidth || 1920) * scale) / 2;
+      const offsetY = frameBox.top - paneBox.top + (frameBox.height - (video.baseHeight || 1080) * scale) / 2;
+
+      selection.hidden = false;
+      selection.style.left = `${offsetX + box.left * scale}px`;
+      selection.style.top = `${offsetY + box.top * scale}px`;
+      selection.style.width = `${Math.max(2, box.width * scale)}px`;
+      selection.style.height = `${Math.max(2, box.height * scale)}px`;
+    }
   }
 
   #restartStreamsIfNeeded() {
@@ -343,6 +621,8 @@ export class PreviewPanel {
       surface.scene = this.#sceneFor(surface.kind);
     }
     this.#restartStreamsIfNeeded();
+    for (const surface of this.surfaces) this.#ensureTransforms(surface);
+    this.#renderSelection();
 
     const anyScene = Boolean(state.currentProgramScene || state.currentPreviewScene);
     this.placeholder.hidden = anyScene;

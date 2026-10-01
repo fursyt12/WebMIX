@@ -1484,3 +1484,45 @@ body.obs-app {
 .obs-dialog-actions .obs-btn {
   min-width: 90px;
 }
+
+/* ------------------------------------------- preview source interaction */
+
+/* Selection rectangle with the resize handles OBS paints over the selected
+   source: drag the body to move it, drag a handle to scale it, double-click for
+   the Transform dialog. */
+.obs-preview-selection {
+  position: absolute;
+  border: 1px solid var(--obs-error-bright, #e85e75);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.obs-preview-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0 -5px;
+  background: var(--obs-error-bright, #e85e75);
+  border: 1px solid #ffffff;
+  border-radius: 1px;
+  pointer-events: auto;
+  cursor: nwse-resize;
+}
+
+.obs-preview-handle.is-nw { left: 0; top: 0; }
+.obs-preview-handle.is-n { left: 50%; top: 0; cursor: ns-resize; }
+.obs-preview-handle.is-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.obs-preview-handle.is-e { left: 100%; top: 50%; cursor: ew-resize; }
+.obs-preview-handle.is-se { left: 100%; top: 100%; }
+.obs-preview-handle.is-s { left: 50%; top: 100%; cursor: ns-resize; }
+.obs-preview-handle.is-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.obs-preview-handle.is-w { left: 0; top: 50%; cursor: ew-resize; }
+
+/* The pane handles the drag itself, so the browser must not pan on touch. */
+.obs-preview-pane {
+  touch-action: none;
+}
+
+.obs-preview-pane.is-selected .obs-preview-image {
+  cursor: move;
+}
