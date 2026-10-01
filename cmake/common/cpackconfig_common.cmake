@@ -14,10 +14,21 @@ if(NOT DEFINED WEBMIX_PACKAGE_NAME)
 endif()
 
 set(CPACK_PACKAGE_NAME "${WEBMIX_PACKAGE_NAME}")
-set(CPACK_PACKAGE_VENDOR "${OBS_WEBSITE}")
-set(CPACK_PACKAGE_HOMEPAGE_URL "${OBS_WEBSITE}")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${OBS_COMMENTS}")
 set(CPACK_PACKAGE_CHECKSUM SHA256)
+
+# The package metadata follows the package name: a `webmix` build is this fork
+# and should say so, an obs-studio build stays upstream's.
+if(WEBMIX_PACKAGE_NAME STREQUAL "obs-studio")
+  set(CPACK_PACKAGE_VENDOR "${OBS_WEBSITE}")
+  set(CPACK_PACKAGE_HOMEPAGE_URL "${OBS_WEBSITE}")
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${OBS_COMMENTS}")
+else()
+  set(CPACK_PACKAGE_VENDOR "WebMIX")
+  set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/fursyt12/WebMIX")
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+      "OBS Studio with the WebMIX browser interface: the whole UI is served over HTTP and rendered with WebGPU"
+  )
+endif()
 
 set(CPACK_PACKAGE_VERSION_MAJOR ${OBS_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${OBS_VERSION_MINOR})

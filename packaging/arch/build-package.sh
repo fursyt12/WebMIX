@@ -28,8 +28,11 @@ fi
 
 cd "${here}"
 
-# --cleanbuild keeps repeated CI runs honest (a stale src/ would silently build
-# an old commit).
+# A cached VCS mirror from an earlier run may point at a different URL, or lack
+# the tag this PKGBUILD asks for, and makepkg would quietly reuse it. Start from
+# a clean source every time; --cleanbuild only clears what is already unpacked.
+rm -rf "${here}/src" "${here}/pkg" "${here}/webmix"
+
 makepkg --noconfirm --cleanbuild --force --syncdeps
 
 pkg=(webmix-*.pkg.tar.zst)

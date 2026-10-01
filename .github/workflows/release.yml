@@ -91,7 +91,7 @@ jobs:
             nlohmann-json3-dev libwebsocketpp-dev libasio-dev libqrcodegencpp-dev \
             librist-dev libsrt-openssl-dev \
             qt6-base-dev libqt6svg6-dev qt6-base-private-dev \
-            libvpl-dev libvpl2
+            libffmpeg-nvenc-dev libvpl-dev libvpl2
 
       - name: Configure 🛠️
         run: |
@@ -112,6 +112,17 @@ jobs:
         run: |
           : Package 📀
           packaging/deb/package-deb.sh build_ubuntu dist
+
+      - name: Verify the package 🔎
+        run: |
+          : Verify the package 🔎
+          deb="$(ls dist/webmix_*_amd64.deb)"
+          dpkg-deb -I "${deb}" >/dev/null
+          dpkg-deb -c "${deb}" | grep -q 'usr/bin/obs$'
+          dpkg-deb -c "${deb}" | grep -q 'usr/bin/webmix -> obs'
+          dpkg-deb -c "${deb}" | grep -q 'usr/share/obs-studio/web/index.html'
+          dpkg-deb -c "${deb}" | grep -q 'usr/lib/x86_64-linux-gnu/obs-plugins/obs-websocket.so'
+          echo "${deb} contains obs, the webmix launcher and the web frontend"
 
       - name: Upload artifacts 📡
         uses: actions/upload-artifact@v4
@@ -146,6 +157,17 @@ jobs:
           # makepkg refuses to run as root, and the checkout is owned by root.
           chown -R builder:builder "${GITHUB_WORKSPACE}"
           su builder -c "cd '${GITHUB_WORKSPACE}' && packaging/arch/build-package.sh '${GITHUB_WORKSPACE}/dist'"
+
+      - name: Verify the package 🔎
+        run: |
+          : Verify the package 🔎
+          pkg="$(ls dist/webmix-*.pkg.tar.zst)"
+          pacman -Qip "${pkg}" | grep -q '^Name.*: webmix'
+          pacman -Qlp "${pkg}" | grep -q 'usr/bin/obs$'
+          pacman -Qlp "${pkg}" | grep -q 'usr/bin/webmix'
+          pacman -Qlp "${pkg}" | grep -q 'usr/share/obs-studio/web/index.html'
+          tar -tzf dist/webmix.db.tar.gz | grep -q 'webmix-0.1.0'
+          echo "${pkg} and the repository database look right"
 
       - name: Upload artifacts 📡
         uses: actions/upload-artifact@v4
@@ -187,6 +209,22 @@ jobs:
 
       - name: Package 📀
         run: pwsh -File packaging/windows/package.ps1 -BuildDir build_x64 -OutDir dist -Configuration RelWithDebInfo
+
+      - name: Verify the archive 🔎
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist -Filter 'webmix-*.zip' | Select-Object -First 1
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
+          try {
+            $names = $archive.Entries | ForEach-Object { $_.FullName }
+            foreach ($needed in @('obs.exe', 'obs-websocket.dll', 'web/index.html')) {
+              if (-not ($names -like "*$needed")) { throw "$needed is missing from $($zip.Name)" }
+            }
+            Write-Host "$($zip.Name) contains obs.exe, obs-websocket and the web frontend"
+          } finally {
+            $archive.Dispose()
+          }
 
       - name: Upload artifacts 📡
         uses: actions/upload-artifact@v4

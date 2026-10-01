@@ -33,13 +33,12 @@ optdepends=(
 makedepends=(
   'base-devel' 'cmake' 'ninja' 'git' 'pkgconf' 'python' 'swig' 'qt6-tools'
   'qt6-base' 'qt6-svg' 'wayland' 'wayland-protocols' 'libxkbcommon'
-  'libx11' 'libxcb' 'libxcb-randr' 'libxcb-shm' 'libxcb-xinerama'
-  'libxcb-composite' 'libxcb-xfixes' 'libxss' 'libxcomposite' 'libxdamage'
+  'libx11' 'libxcb' 'libxss' 'libxcomposite' 'libxdamage'
   'libxrandr' 'libxfixes' 'libxi' 'libxinerama' 'libxkbcommon-x11'
-  'libglvnd' 'mesa' 'alsa-lib' 'libpulse' 'libsndio' 'speexdsp' 'libv4l'
+  'libglvnd' 'mesa' 'alsa-lib' 'libpulse' 'sndio' 'speexdsp' 'v4l-utils'
   'libva' 'libdrm' 'libpciaccess' 'libfdk-aac' 'mbedtls3' 'pciutils'
   'nlohmann-json' 'websocketpp' 'asio' 'qrcodegencpp-cmake' 'uthash' 'simde'
-  'rnnoise' 'libdatachannel' 'pipewire' 'jack' 'jansson' 'curl' 'ffmpeg'
+  'rnnoise' 'libdatachannel' 'pipewire' 'jack2' 'jansson' 'curl' 'ffmpeg'
 )
 provides=('obs-studio')
 conflicts=('obs-studio')
