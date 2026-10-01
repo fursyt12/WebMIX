@@ -92,6 +92,11 @@ jobs:
 
   build-project:
     name: Build 🧱
+    # WebMIX: upstream's build pipeline targets obsproject's own infrastructure
+    # (codesigning, notarization, Cloudflare/S3 publishing) and cannot run in a
+    # fork; it only competes with .github/workflows/release.yml for runners.
+    # Same guard the other upstream jobs in this repository already use.
+    if: github.repository_owner == 'obsproject'
     uses: ./.github/workflows/build-project.yaml
     needs: cache-cleanup
     secrets: inherit

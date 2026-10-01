@@ -25,8 +25,9 @@ if(WEBMIX_PACKAGE_NAME STREQUAL "obs-studio")
 else()
   set(CPACK_PACKAGE_VENDOR "WebMIX")
   set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/fursyt12/WebMIX")
-  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
-      "OBS Studio with the WebMIX browser interface: the whole UI is served over HTTP and rendered with WebGPU"
+  set(
+    CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "OBS Studio with the WebMIX browser interface: the whole UI is served over HTTP and rendered with WebGPU"
   )
 endif()
 

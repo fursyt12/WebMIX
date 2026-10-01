@@ -51,12 +51,17 @@ install(
 # Packages also install the same binary as `webmix`, so the web mode has an
 # obvious entry point: `webmix --web`. macOS ships an app bundle instead.
 if(UNIX AND NOT APPLE)
-  install(CODE "
+  install(
+    CODE
+      "
     execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink obs
       \"\$ENV{DESTDIR}${CMAKE_INSTALL_FULL_BINDIR}/webmix\")
-  ")
+  "
+  )
 
   # The launcher that starts OBS straight into web mode.
-  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/webmix/webmix.desktop"
-          DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
+  install(
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/webmix/webmix.desktop"
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
+  )
 endif()
