@@ -115,6 +115,14 @@ void OBSBasic::SysTrayNotify(const QString &text, QSystemTrayIcon::MessageIcon n
 
 void OBSBasic::SystemTray(bool firstStarted)
 {
+	/* Web mode has no native interface, so SystemTrayInit() creates nothing and
+	 * everything below would be a null dereference. Linux hid this because a
+	 * machine without a tray returns one line later anyway; Windows has one, so
+	 * a double-clicked obs64.exe crashed here. */
+	if (web_mode) {
+		return;
+	}
+
 	if (!QSystemTrayIcon::isSystemTrayAvailable()) {
 		return;
 	}

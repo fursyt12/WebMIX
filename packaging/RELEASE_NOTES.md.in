@@ -53,7 +53,9 @@ Web mode implies `--disable-missing-files-check`, keeps the window hidden,
 creates no tray icon and enables obs-websocket so other clients can connect too.
 The port, host and browser behaviour can also be set in `global.ini` under
 `[General]` (`WebPort`, `WebHost`, `WebOpenBrowser`); `--startrecording` /
-`--startstreaming` start an output immediately.
+`--startstreaming` start an output immediately. The updater is disabled as
+well: it prompts before installing, and a window-less instance has nowhere to
+show that prompt - web-mode installs are updated by replacing them.
 
 The interface is unauthenticated by design and the page carries the
 obs-websocket password, so bind it to loopback (the default) unless the network

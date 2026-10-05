@@ -568,6 +568,12 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 			 * prompt, which would otherwise block an unattended start. */
 			opt_disable_missing_files_check = true;
 
+			/* Same reason: the updater asks before it installs, and an
+			 * unattended instance has nobody to answer and no visible window
+			 * to show the prompt in. Web-mode installs are updated by
+			 * replacing them. */
+			opt_disable_updater = true;
+
 			if (!opt_web_port_set) {
 				const int port = config_get_int(appConfig, "General", "WebPort");
 				if (port > 0 && port < 65536) {
