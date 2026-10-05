@@ -5,12 +5,22 @@
 # the obs-websocket connection details).  Used by web mode (the default launch),
 # where the Qt window is never shown and the web interface is the only UI.
 
-# The preview encoder writes JPEG through libjpeg directly rather than through
-# Qt's writer, for two reasons that both matter at 60 fps: Qt enables Huffman
-# optimisation (about 3x the encode time for a few percent of size), and it
-# picks the chroma subsampling for us. See WebMixPreview.cpp.
-find_package(JPEG REQUIRED)
-target_link_libraries(obs-studio PRIVATE JPEG::JPEG)
+# The preview encoder prefers libjpeg over Qt's writer, for two reasons that both
+# matter at 60 fps: Qt enables Huffman optimisation (about 3x the encode time
+# for a few percent of size), and it picks the chroma subsampling for us. See
+# WebMixPreview.cpp.
+#
+# It is optional on purpose. The Windows dependency bundle does not expose
+# libjpeg through CMake's finder, and a codec the preview merely prefers must
+# not fail a configure: when it is missing the same file compiles a Qt-based
+# encoder instead.
+find_package(JPEG)
+if(JPEG_FOUND)
+  target_compile_definitions(obs-studio PRIVATE WEBMIX_HAVE_LIBJPEG)
+  target_link_libraries(obs-studio PRIVATE JPEG::JPEG)
+else()
+  message(STATUS "WebMIX: libjpeg not found; the preview will use Qt's JPEG writer")
+endif()
 
 target_sources(
   obs-studio

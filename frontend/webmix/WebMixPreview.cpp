@@ -20,7 +20,9 @@
 #include <QBuffer>
 #include <QStringList>
 
+#ifdef WEBMIX_HAVE_LIBJPEG
 #include <jpeglib.h>
+#endif
 
 #include <csetjmp>
 #include <cstdlib>
@@ -280,6 +282,7 @@ QImage CaptureMultiview(const QStringList &requested, uint32_t width, uint32_t h
 	return ok ? image : QImage();
 }
 
+#ifdef WEBMIX_HAVE_LIBJPEG
 /* libjpeg reports errors by longjmp-ing out of the encoder; the default
  * handler calls exit(), which would take OBS down with it. */
 struct JpegErrorHandler {
@@ -360,6 +363,33 @@ QByteArray EncodeJpeg(const QImage &image, int quality)
 	free(out);
 	return encoded;
 }
+#else
+/*! Encode an image as JPEG with Qt's writer.
+ *
+ * Fallback for builds without libjpeg - the Windows dependency bundle does not
+ * expose it, and a codec the preview merely prefers must not fail a configure.
+ * Qt enables Huffman optimisation, so this is slower at large pane sizes, but
+ * it produces a valid JPEG and keeps the preview working everywhere.
+ */
+QByteArray EncodeJpeg(const QImage &image, int quality)
+{
+	if (image.isNull()) {
+		return QByteArray();
+	}
+
+	QByteArray encoded;
+	QBuffer buffer(&encoded);
+	if (!buffer.open(QIODevice::WriteOnly)) {
+		blog(LOG_WARNING, "[WebMIX] JPEG encoding failed: cannot open a buffer");
+		return QByteArray();
+	}
+	if (!image.save(&buffer, "JPEG", quality)) {
+		blog(LOG_WARNING, "[WebMIX] JPEG encoding failed");
+		return QByteArray();
+	}
+	return encoded;
+}
+#endif
 
 Stream::Stream(QTcpSocket *socket_, QString sourceName_, int width_, int height_, int fps_, int quality_,
 	       QObject *parent, Mode mode_)
