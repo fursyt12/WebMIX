@@ -33,12 +33,20 @@ browser is the only interface. This is what a plain launch does — including
 double-clicking `obs64.exe` on Windows, which passes no arguments at all:
 
 ```bash
-obs                           # http://127.0.0.1:4456/
-obs --web-host 0.0.0.0        # reachable from the LAN
-obs --web-port 8080           # different port
+obs                           # asks once, then http://127.0.0.1:4456/
+obs --web-host 0.0.0.0        # reachable from the LAN (skips the question)
+obs --web-port 8080           # different port (skips the question)
+obs --web-choose              # ask again even if the answer was remembered
 obs --no-browser              # autostart: serve, but do not open a browser
 obs --no-web                  # the classic OBS window instead
 ```
+
+On a normal launch OBS asks which **address and port** to serve on, listing the
+addresses this machine actually has, and then opens the page in the default
+browser. Tick *Remember this choice* and later launches start straight away
+without asking. `--web-host` / `--web-port` also skip the question, `--web-choose`
+brings it back, and the remembered answer lives in `global.ini` as
+`WebAskOnStartup`, `WebHost` and `WebPort`.
 
 `--web` is still accepted, so existing shortcuts and scripts keep working, but
 it no longer changes anything. What web mode does:

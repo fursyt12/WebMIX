@@ -18,6 +18,7 @@
 #include "OBSApp.hpp"
 
 #include "webmix/WebMixServer.hpp"
+#include "webmix/WebMixStartup.hpp"
 
 #include <components/Multiview.hpp>
 #include <dialogs/LogUploadDialog.hpp>
@@ -88,6 +89,7 @@ extern string opt_starting_profile;
 /* WebMIX headless web mode (see obs-main.cpp). */
 extern bool web_mode;
 extern bool opt_web_open_browser;
+extern bool opt_web_ask;
 extern uint16_t opt_web_port;
 extern std::string opt_web_host;
 
@@ -451,6 +453,11 @@ bool OBSApp::InitGlobalConfigDefaults()
 	config_set_default_bool(appConfig, "General", "WebOpenBrowser", true);
 	config_set_default_int(appConfig, "General", "WebPort", 4456);
 	config_set_default_string(appConfig, "General", "WebHost", "127.0.0.1");
+
+	/* WebMIX: ask for the address and port on start.  Checking "remember" in
+	 * that dialog clears this, so an unattended launch never prompts again;
+	 * --web-host/--web-port also skip it. */
+	config_set_default_bool(appConfig, "General", "WebAskOnStartup", true);
 
 #if _WIN32
 	config_set_default_string(appConfig, "Video", "Renderer", "Direct3D 11");
@@ -1526,6 +1533,37 @@ bool OBSApp::OBSInit()
 	 * crashes the deferred-destroy thread.  Quitting normally exits with the
 	 * reason in the log, which is what an unattended start needs. */
 	if (web_mode && !webMixServer) {
+		/* WebMIX: ask where to serve.  A double-click has no way to pass
+		 * --web-host/--web-port, and the answer can be remembered, so this
+		 * is the only place the address is chosen on a normal launch. */
+		if (opt_web_ask) {
+			QString host = QString::fromStdString(opt_web_host);
+			quint16 port = opt_web_port;
+			bool remember = false;
+
+			if (!WebMixStartup::AskEndpoint(mainWindow, host, port, remember)) {
+				blog(LOG_INFO, "[WebMIX] Start-up cancelled at the address chooser; exiting.");
+				QTimer::singleShot(0, qApp, []() { QCoreApplication::exit(0); });
+				return true;
+			}
+
+			opt_web_host = host.toStdString();
+			opt_web_port = port;
+
+			if (remember) {
+				config_t *appConfig = GetAppConfig();
+				config_set_string(appConfig, "General", "WebHost", qUtf8Printable(host));
+				config_set_int(appConfig, "General", "WebPort", port);
+				config_set_bool(appConfig, "General", "WebAskOnStartup", false);
+				if (config_save_safe(appConfig, "tmp", nullptr) != CONFIG_SUCCESS) {
+					blog(LOG_WARNING, "[WebMIX] Could not save the chosen address to global.ini");
+				} else {
+					blog(LOG_INFO, "[WebMIX] Remembered %s:%u as the web interface address",
+					     qUtf8Printable(host), port);
+				}
+			}
+		}
+
 		webMixServer = new WebMixServer(this);
 		if (!webMixServer->Start(QString::fromStdString(opt_web_host), opt_web_port)) {
 			blog(LOG_ERROR, "[WebMIX] The web interface could not be started; exiting because "

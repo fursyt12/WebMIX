@@ -200,7 +200,14 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 		return false;
 	}
 
-	url = QStringLiteral("http://%1:%2/").arg(address.toString()).arg(server->serverPort());
+	/* A wildcard bind is not an address a browser can open, so the URL handed
+	 * out (and opened) points at loopback. A specific address is used as-is:
+	 * the browser may well be on another machine. */
+	const bool wildcard = address == QHostAddress(QHostAddress::Any) ||
+			      address == QHostAddress(QHostAddress::AnyIPv4) ||
+			      address == QHostAddress(QHostAddress::AnyIPv6);
+	const QHostAddress reachable = wildcard ? QHostAddress(QHostAddress::LocalHost) : address;
+	url = QStringLiteral("http://%1:%2/").arg(reachable.toString()).arg(server->serverPort());
 
 	/* The UI is unauthenticated by design (it is a local control surface) and
 	 * it has to hand the browser the obs-websocket password, so binding beyond

@@ -44,6 +44,8 @@ target_sources(
     webmix/WebMixRemux.hpp
     webmix/WebMixServer.cpp
     webmix/WebMixServer.hpp
+    webmix/WebMixStartup.cpp
+    webmix/WebMixStartup.hpp
 )
 
 # Let a build-tree run of OBS find the frontend without installation.

@@ -74,6 +74,8 @@ static bool unfiltered_log = false;
  * way back to the classic window is `--no-web` (alias `--native`). */
 bool web_mode = true;
 bool opt_web_open_browser = true;
+bool opt_web_ask = true;
+static bool opt_web_choose = false;
 static bool opt_web_port_set = false;
 static bool opt_web_host_set = false;
 uint16_t opt_web_port = 4456;
@@ -593,6 +595,13 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 				opt_web_open_browser = false;
 			}
 
+			/* --web-host/--web-port are an answer already given. Otherwise
+			 * ask on start, unless the machine was told not to - checking
+			 * "remember" in that dialog is what sets WebAskOnStartup. */
+			const bool endpointGiven = opt_web_port_set || opt_web_host_set;
+			opt_web_ask = opt_web_choose ||
+				      (!endpointGiven && config_get_bool(appConfig, "General", "WebAskOnStartup"));
+
 			blog(LOG_INFO, "[WebMIX] Web mode: %s:%u (use --no-web for the native window)",
 			     opt_web_host.c_str(), opt_web_port);
 		}
@@ -1045,6 +1054,11 @@ int main(int argc, char *argv[])
 			 * focus with a browser window. */
 			opt_web_open_browser = false;
 
+		} else if (arg_is(argv[i], "--web-choose", nullptr)) {
+			/* Ask for the address and port even if the answer was
+			 * remembered before. */
+			opt_web_choose = true;
+
 		} else if (arg_is(argv[i], "--web-port", nullptr)) {
 			if (++i < argc) {
 				const int port = atoi(argv[i]);
@@ -1140,8 +1154,10 @@ int main(int argc, char *argv[])
 				"       obs-websocket is not required, but is still started for other clients.\n"
 				"--no-web, --native: Start the classic OBS window instead of the web interface.\n"
 				"--no-browser: Do not open the web interface in a browser on start.\n"
-				"--web-port <port>: Port for the web interface (default 4456).\n"
+				"--web-port <port>: Port for the web interface (default 4456); skips the startup chooser.\n"
 				"--web-host <address>: Address for the web interface (default 127.0.0.1; use 0.0.0.0 for the LAN).\n"
+				"       Giving either one skips the startup address chooser.\n"
+				"--web-choose: Ask for the address and port on start, even if the answer was remembered.\n"
 				"--verbose: Make log more verbose.\n"
 				"--always-on-top: Start in 'always on top' mode.\n\n"
 				"--unfiltered_log: Make log unfiltered.\n\n"
