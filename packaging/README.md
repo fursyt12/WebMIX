@@ -6,7 +6,7 @@ hand from a checkout. The three platform jobs produce:
 | Job | Script | Artifacts |
 | --- | --- | --- |
 | Debian/Ubuntu | `deb/package-deb.sh <build-dir> <out-dir>` | `webmix_<version>_amd64.deb`, `webmix-dbgsym_<version>_amd64.ddeb` |
-| Arch Linux | `arch/build-package.sh [out-dir]` | `webmix-<version>-1-x86_64.pkg.tar.zst` plus the pacman repository database (`webmix.db*`, `webmix.files*`) |
+| Arch Linux | `arch/build-package.sh [out-dir] [version]` | `webmix-<version>-1-x86_64.pkg.tar.zst` plus the pacman repository database (`webmix.db*`, `webmix.files*`) |
 | Windows | `windows/package.ps1 -BuildDir build_x64 -OutDir dist` | `webmix-<version>-windows-x64.zip` |
 
 `publish-release.sh <version> <dist-dir>` collects such a `dist/` directory,
@@ -36,7 +36,7 @@ the workflow itself.
 
 ```bash
 cd packaging/arch
-./build-package.sh ../../dist
+./build-package.sh ../../dist 0.1.0   # the version is optional; the PKGBUILD has a fallback
 ```
 
 `makepkg` refuses to run as root, and it needs network access for two reasons:
