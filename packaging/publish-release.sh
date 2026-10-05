@@ -49,7 +49,16 @@ ls -1 "${dist}"
 
 if gh release view "${tag}" --repo "${repo}" >/dev/null 2>&1; then
 	echo "Updating the existing release ${tag}..."
-	gh release upload "${tag}" --repo "${repo}" --clobber "${dist}"/*
+	# Assets are rebuilt as a set, and some carry the version in their name (the
+	# Arch package, for one), so a re-tagged release would otherwise keep the
+	# previous run's files next to the new ones - --clobber only replaces
+	# same-named assets. Drop everything, then upload what this run built.
+	while read -r name; do
+		[[ -n "${name}" ]] || continue
+		gh release delete-asset "${tag}" "${name}" --repo "${repo}" --yes
+	done < <(gh release view "${tag}" --repo "${repo}" --json assets --jq '.assets[].name')
+	gh release edit "${tag}" --repo "${repo}" --title "WebMIX ${version}" --notes-file "${notes}"
+	gh release upload "${tag}" --repo "${repo}" "${dist}"/*
 else
 	echo "Creating the release ${tag}..."
 	gh release create "${tag}" --repo "${repo}" \

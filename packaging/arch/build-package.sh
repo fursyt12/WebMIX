@@ -6,7 +6,7 @@
 # archlinux container as a freshly created build user (see
 # .github/workflows/release.yml).
 #
-#   ./build-package.sh [output-dir]
+#   ./build-package.sh [output-dir] [version]
 #
 # Produces, in the output directory:
 #   webmix-<version>-<rel>-x86_64.pkg.tar.zst
@@ -14,12 +14,21 @@
 #
 # The four database files are plain copies of each other: pacman is happy with
 # either name, and a GitHub release cannot carry the symlinks repo-add creates.
+#
+# The version comes from the release tag in CI. Without it the PKGBUILD falls
+# back to its own pkgver, so a plain `./build-package.sh` still works.
 set -euo pipefail
 
 out="${1:-.}"
+version="${2:-}"
 mkdir -p "${out}"
 out="$(cd "${out}" && pwd)"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -n "${version}" ]]; then
+	export WEBMIX_PKGVER="${version}"
+	echo "Building webmix ${version}"
+fi
 
 if [[ "$(id -u)" -eq 0 ]]; then
 	echo "error: makepkg must not run as root; create a build user first" >&2

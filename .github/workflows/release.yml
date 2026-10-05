@@ -172,14 +172,20 @@ jobs:
           fetch-depth: 0
 
       - name: Build the package and the repository 🧱
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           : Build the package and the repository 🧱
           # makepkg refuses to run as root, and the checkout is owned by root.
           chown -R builder:builder "${GITHUB_WORKSPACE}"
           source packaging/ci.sh
-          ci_run su builder -c "cd '${GITHUB_WORKSPACE}' && packaging/arch/build-package.sh '${GITHUB_WORKSPACE}/dist'"
+          # The version has to reach makepkg: the PKGBUILD used to carry a
+          # hardcoded pkgver, which built a 0.1.0 package for every release.
+          ci_run su builder -c "cd '${GITHUB_WORKSPACE}' && packaging/arch/build-package.sh '${GITHUB_WORKSPACE}/dist' '${VERSION}'"
 
       - name: Verify the package 🔎
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           : Verify the package 🔎
           # webmix-debug is built as well; [0-9] picks the package, not the debug one.
@@ -194,12 +200,14 @@ jobs:
               exit 1
             fi
           }
+          escaped="${VERSION//./\\.}"
           check 'named webmix' '^Name.*: webmix' info.txt
+          check 'carries the release version' "^Version.*: ${escaped}(-|$)" info.txt
           check 'installs obs' 'usr/bin/obs$' contents.txt
           check 'installs the webmix launcher' 'usr/bin/webmix' contents.txt
           check 'ships the web frontend' 'usr/share/obs-studio/web/index.html' contents.txt
           check 'ships obs-websocket' '/obs-websocket\.so$' contents.txt
-          check 'repository lists the package' 'webmix-0\.1\.0' <(tar -tzf dist/webmix.db.tar.gz)
+          check 'repository lists the package' "webmix-${escaped}" <(tar -tzf dist/webmix.db.tar.gz)
 
       - name: Upload artifacts 📡
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
