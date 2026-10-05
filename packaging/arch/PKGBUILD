@@ -23,6 +23,10 @@ depends=(
   'ffmpeg' 'jansson' 'libxinerama' 'libxkbcommon-x11' 'mbedtls3' 'rnnoise'
   'pciutils' 'qt6-svg' 'curl' 'jack' 'pipewire' 'libxcomposite'
   'libdatachannel' 'uthash' 'simde' 'qrcodegencpp-cmake' 'python' 'luajit'
+  # What the bundled CEF (the Browser source) needs at runtime.
+  'nss' 'nspr' 'libcups' 'expat' 'pango' 'at-spi2-core' 'alsa-lib'
+  'libglvnd' 'mesa' 'libdrm' 'libxdamage' 'libxrandr' 'libxfixes' 'libxi'
+  'libxkbcommon' 'libx11' 'libxcb'
 )
 optdepends=(
   'libfdk-aac: FDK AAC codec support'
@@ -34,7 +38,7 @@ optdepends=(
   'xdg-desktop-portal-impl: Wayland window/screen capture'
 )
 makedepends=(
-  'base-devel' 'cmake' 'ninja' 'git' 'pkgconf' 'python' 'swig' 'qt6-tools'
+  'base-devel' 'cmake' 'ninja' 'git' 'pkgconf' 'python' 'swig' 'qt6-tools' 'curl'
   'extra-cmake-modules' 'qt6-base' 'qt6-svg' 'qt6-wayland' 'wayland'
   'wayland-protocols' 'libxkbcommon'
   'libx11' 'libxcb' 'libxss' 'libxcomposite' 'libxdamage'
@@ -58,16 +62,27 @@ sha256sums=('SKIP')
 prepare() {
   cd "${pkgname}"
   git submodule update --init --recursive
+
+  # The Browser source is obs-browser, which needs a prebuilt Chromium Embedded
+  # Framework. Arch has no package for it, so fetch the same tarball OBS's own
+  # Linux builds use; the version is the one this checkout pins.
+  local cef_version
+  cef_version="$(python -c 'import json;d=json.load(open("CMakePresets.json"));print(next(p for p in d["configurePresets"] if p["name"]=="dependencies")["vendor"]["obsproject.com/obs-studio"]["dependencies"]["cef"]["version"])')"
+  curl -fL --retry 3 -o "${srcdir}/cef.tar.xz" \
+    "https://cdn-fastly.obsproject.com/downloads/cef_binary_${cef_version}_linux_x86_64.tar.xz"
+  tar -xf "${srcdir}/cef.tar.xz" -C "${srcdir}"
 }
 
 build() {
   cd "${pkgname}"
 
-  # Same configuration the WebMIX test suites run against: the browser frontend
-  # is the UI, so CEF (Browser Source) and the Lua/Python script hosts are not
-  # built. Add -DENABLE_BROWSER=ON / -DENABLE_SCRIPTING=ON to get them back.
-  # Arch installs MbedTLS 3's CMake package under a versioned prefix, which is
-  # not on CMake's search path.
+  local cef_version
+  cef_version="$(python -c 'import json;d=json.load(open("CMakePresets.json"));print(next(p for p in d["configurePresets"] if p["name"]=="dependencies")["vendor"]["obsproject.com/obs-studio"]["dependencies"]["cef"]["version"])')"
+
+  # Same configuration the WebMIX test suites run against, plus the Browser
+  # source (CEF). The Lua/Python script hosts are still off. Arch installs
+  # MbedTLS 3's CMake package under a versioned prefix, which is not on CMake's
+  # search path.
   local mbedtls_dir=()
   if [[ -d /usr/lib/mbedtls3/cmake/MbedTLS ]]; then
     mbedtls_dir+=(-DMbedTLS_DIR=/usr/lib/mbedtls3/cmake/MbedTLS)
@@ -80,7 +95,8 @@ build() {
     -DCMAKE_INSTALL_LIBDIR=lib \
     -DOBS_VERSION_OVERRIDE="${pkgver}" \
     -DWEBMIX_PACKAGE_NAME=webmix \
-    -DENABLE_BROWSER=OFF \
+    -DENABLE_BROWSER=ON \
+    -DCEF_ROOT_DIR="${srcdir}/cef_binary_${cef_version}_linux_x86_64" \
     -DENABLE_SCRIPTING=OFF \
     -DENABLE_VLC=OFF \
     -DENABLE_AJA=OFF \

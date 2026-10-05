@@ -90,6 +90,17 @@ export class SourcesPanel {
       }
     });
 
+    /* Double-clicking a source opens its properties, exactly like the desktop
+     * UI's source list - for a capture source that is where the monitor or
+     * window is chosen, so it is the shortcut people reach for first. */
+    this.list.addEventListener('dblclick', (event) => {
+      const row = event.target.closest('[data-source-name]');
+      if (!row) return;
+      this.selected = row.dataset.sourceName;
+      this.onSelectSource?.(this.selected, this.#item(this.selected));
+      this.openProperties();
+    });
+
     this.list.addEventListener('contextmenu', (event) => {
       event.preventDefault();
       const row = event.target.closest('[data-source-name]');
@@ -152,20 +163,31 @@ export class SourcesPanel {
         h('label.obs-radio-label', {}, [existingRadio, 'Add Existing']),
       ]);
 
-      let selectedKind = kinds[0] ?? null;
+      let selectedKind = kinds[0]?.kind ?? null;
       let selectedExisting = null;
+
+      /* OBS names a new source after its type ("Display Capture"), and appends
+       * a number when that name is taken. */
+      const uniqueName = (base) => {
+        if (!existingInputs.includes(base)) return base;
+        for (let i = 2; ; i++) {
+          const candidate = `${base} ${i}`;
+          if (!existingInputs.includes(candidate)) return candidate;
+        }
+      };
 
       const renderKinds = () => {
         clear(kindList);
-        for (const kind of kinds) {
-          const row = h('li.obs-list-item', { dataset: { kind }, role: 'option' }, [
-            icon(iconForKind(kind)),
-            h('span.obs-list-label', { text: kind }),
-          ]);
-          if (kind === selectedKind) row.classList.add('is-selected');
+        for (const entry of kinds) {
+          const row = h(
+            'li.obs-list-item',
+            { dataset: { kind: entry.kind }, role: 'option', title: entry.kind },
+            [icon(iconForKind(entry.kind)), h('span.obs-list-label', { text: entry.name })]
+          );
+          if (entry.kind === selectedKind) row.classList.add('is-selected');
           row.addEventListener('click', () => {
-            selectedKind = kind;
-            nameInput.value = selectedKind;
+            selectedKind = entry.kind;
+            nameInput.value = uniqueName(entry.name);
             for (const other of kindList.children) other.classList.remove('is-selected');
             row.classList.add('is-selected');
           });
@@ -173,7 +195,7 @@ export class SourcesPanel {
         }
       };
       renderKinds();
-      nameInput.value = selectedKind ?? '';
+      nameInput.value = kinds.length ? uniqueName(kinds[0].name) : '';
 
       const renderExisting = () => {
         clear(existingList);

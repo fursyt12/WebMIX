@@ -474,6 +474,11 @@ void GetInputKindList(const QJsonObject &data, Response &response)
 	}
 
 	QJsonArray kinds;
+	/* Parallel to inputKinds: what OBS itself calls each kind, for the picker.
+	 * The ids are what CreateInput needs, but "monitor_capture" is not a label
+	 * to put in front of a user ("Display Capture" is). Extra field, so an
+	 * obs-websocket client reading inputKinds is unaffected. */
+	QJsonArray names;
 	size_t index = 0;
 	const char *id = nullptr;
 	const char *unversionedId = nullptr;
@@ -485,8 +490,12 @@ void GetInputKindList(const QJsonObject &data, Response &response)
 		}
 		const char *chosen = unversioned ? unversionedId : id;
 		kinds.append(QString::fromUtf8(chosen ? chosen : id));
+
+		const char *displayName = obs_source_get_display_name(id);
+		names.append(QString::fromUtf8(displayName && *displayName ? displayName : (chosen ? chosen : id)));
 	}
 	response.data["inputKinds"] = kinds;
+	response.data["inputKindNames"] = names;
 }
 
 void GetInputDefaultSettings(const QJsonObject &data, Response &response)

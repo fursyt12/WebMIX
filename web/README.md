@@ -430,9 +430,9 @@ remains as the development/remote option.
 
 GitHub releases carry ready-made packages built by
 `.github/workflows/release.yml` (Windows zip, Debian/Ubuntu `.deb`, Arch Linux
-package plus a pacman repository). They are configured exactly like the test
-suites (no CEF, no Lua/Python script hosts) and install the same layout as a
-source build: `/usr/bin/obs` with a `/usr/bin/webmix` symlink, the plugins under
+package plus a pacman repository). They include the Browser source (CEF) but no
+Lua/Python script hosts, and they install the same layout as a source build:
+`/usr/bin/obs` with a `/usr/bin/webmix` symlink, the plugins under
 `/usr/lib/obs-plugins` and this directory under `/usr/share/obs-studio/web`, so
 the WebGPU preview and every bridge endpoint work straight after installing.
 

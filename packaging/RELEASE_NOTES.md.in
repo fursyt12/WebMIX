@@ -42,20 +42,27 @@ Web mode is what a plain launch does, on every platform — double-clicking
 all serve the interface and open it in the default browser:
 
 ```bash
-obs                           # http://127.0.0.1:4456/
+obs                           # asks once, then opens the interface
 webmix                        # same thing; webmix is a symlink to obs
-obs --web-host 0.0.0.0        # reachable from the LAN
+obs --web-host 0.0.0.0        # reachable from the LAN (skips the question)
+obs --web-choose              # ask again even if the answer was remembered
 obs --no-browser              # autostart: serve, but do not open a browser
 obs --no-web                  # the classic OBS window instead
 ```
 
+On a normal launch OBS asks which address and port to serve on — the addresses
+are the ones this machine actually has — and then opens the page in the default
+browser. Tick *Remember this choice* and later launches start straight away
+without asking.
+
 Web mode implies `--disable-missing-files-check`, keeps the window hidden,
 creates no tray icon and enables obs-websocket so other clients can connect too.
-The port, host and browser behaviour can also be set in `global.ini` under
-`[General]` (`WebPort`, `WebHost`, `WebOpenBrowser`); `--startrecording` /
-`--startstreaming` start an output immediately. The updater is disabled as
-well: it prompts before installing, and a window-less instance has nowhere to
-show that prompt - web-mode installs are updated by replacing them.
+The remembered address and the browser behaviour live in `global.ini` under
+`[General]` (`WebAskOnStartup`, `WebHost`, `WebPort`, `WebOpenBrowser`);
+`--startrecording` / `--startstreaming` start an output immediately. The updater
+is disabled as well: it prompts before installing, and a window-less instance
+has nowhere to show that prompt - web-mode installs are updated by replacing
+them.
 
 The interface is unauthenticated by design and the page carries the
 obs-websocket password, so bind it to loopback (the default) unless the network
@@ -63,9 +70,10 @@ is trusted.
 
 ## Notes on this build
 
-* Browser Source (CEF) and the Lua/Python script hosts are **not** built: the
-  browser *is* the UI, and both remove a large amount of code and dependencies.
-  Rebuild with `-DENABLE_BROWSER=ON -DENABLE_SCRIPTING=ON` to get them back.
+* The **Browser source** is built and installed (Chromium Embedded Framework is
+  bundled, which is where most of the download size comes from). The Lua/Python
+  script hosts are still off: rebuild with `-DENABLE_SCRIPTING=ON` to get them
+  back.
 * The package is named `webmix` and provides/conflicts with `obs-studio`, so it
   can be installed next to (or instead of) your distribution's OBS. It installs
   `/usr/bin/obs` plus a `/usr/bin/webmix` symlink and a WebMIX launcher.

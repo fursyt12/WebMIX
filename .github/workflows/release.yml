@@ -98,6 +98,23 @@ jobs:
             qt6-base-dev libqt6svg6-dev qt6-base-private-dev \
             libffmpeg-nvenc-dev libvpl-dev libvpl2
 
+      - name: Install CEF 🧩
+        run: |
+          : Install CEF 🧩
+          # The Browser source needs obs-browser, which needs a prebuilt Chromium
+          # Embedded Framework. Its version and hash are the ones CMakePresets.json
+          # pins for OBS's own CI, so this is the same CEF the reference build uses.
+          cef_spec="$(python3 -c 'import json;d=json.load(open("CMakePresets.json"));c=next(p for p in d["configurePresets"] if p["name"]=="dependencies")["vendor"]["obsproject.com/obs-studio"]["dependencies"]["cef"];print(c["version"],c["hashes"]["ubuntu-x86_64"])')"
+          cef_version="${cef_spec%% *}"
+          cef_hash="${cef_spec##* }"
+          curl -fL --retry 3 -o cef.tar.xz \
+            "https://cdn-fastly.obsproject.com/downloads/cef_binary_${cef_version}_linux_x86_64.tar.xz"
+          echo "${cef_hash}  cef.tar.xz" | sha256sum -c -
+          mkdir -p .deps
+          tar -xf cef.tar.xz -C .deps
+          rm -f cef.tar.xz
+          echo "CEF_ROOT_DIR=${GITHUB_WORKSPACE}/.deps/cef_binary_${cef_version}_linux_x86_64" >> "$GITHUB_ENV"
+
       - name: Configure 🛠️
         run: |
           : Configure 🛠️
@@ -108,7 +125,8 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DOBS_VERSION_OVERRIDE=${{ needs.version.outputs.version }} \
             -DWEBMIX_PACKAGE_NAME=webmix \
-            -DENABLE_BROWSER=OFF \
+            -DCEF_ROOT_DIR="${CEF_ROOT_DIR}" \
+            -DENABLE_BROWSER=ON \
             -DENABLE_SCRIPTING=OFF \
             -DENABLE_VLC=OFF
 
@@ -143,6 +161,8 @@ jobs:
           check 'installs the webmix launcher' 'usr/bin/webmix -> obs'
           check 'ships the web frontend' 'usr/share/obs-studio/web/index.html'
           check 'ships obs-websocket' '/obs-websocket\.so$'
+          check 'ships the browser source' '/obs-browser\.so$'
+          check 'ships the CEF runtime' '/core/libcef\.so$'
 
       - name: Upload artifacts 📡
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -207,6 +227,8 @@ jobs:
           check 'installs the webmix launcher' 'usr/bin/webmix' contents.txt
           check 'ships the web frontend' 'usr/share/obs-studio/web/index.html' contents.txt
           check 'ships obs-websocket' '/obs-websocket\.so$' contents.txt
+          check 'ships the browser source' '/obs-browser\.so$' contents.txt
+          check 'ships the CEF runtime' '/core/libcef\.so$' contents.txt
           check 'repository lists the package' "webmix-${escaped}" <(tar -tzf dist/webmix.db.tar.gz)
 
       - name: Upload artifacts 📡
@@ -256,7 +278,6 @@ jobs:
             '--preset', 'windows-ci-x64',
             '-DOBS_VERSION_OVERRIDE=${{ needs.version.outputs.version }}',
             '-DWEBMIX_PACKAGE_NAME=webmix',
-            '-DENABLE_BROWSER=OFF',
             '-DENABLE_SCRIPTING=OFF'
           )
           exit $code
@@ -299,7 +320,7 @@ jobs:
             Write-Host "$($zip.Name) has $($names.Count) entries"
             $missing = @()
             # Windows builds the frontend as obs64.exe (frontend/CMakeLists.txt)
-            foreach ($needed in @('bin/64bit/obs64.exe', 'obs-websocket.dll', 'data/obs-studio/web/index.html')) {
+            foreach ($needed in @('bin/64bit/obs64.exe', 'obs-websocket.dll', 'obs-browser.dll', 'libcef.dll', 'data/obs-studio/web/index.html')) {
               if ($names -like "*$needed") {
                 Write-Host "ok   $needed"
               } else {

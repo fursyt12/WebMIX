@@ -52,8 +52,11 @@ this build disables).
 
 ```bash
 sudo apt-get install -y --no-install-recommends <the list from the workflow>
+# The Browser source needs a prebuilt CEF; the workflow's "Install CEF" step
+# fetches the tarball CMakePresets.json pins and exports CEF_ROOT_DIR.
 cmake --preset ubuntu-ci -DOBS_VERSION_OVERRIDE=0.1.0 -DWEBMIX_PACKAGE_NAME=webmix \
-  -DENABLE_BROWSER=OFF -DENABLE_SCRIPTING=OFF -DENABLE_VLC=OFF
+  -DCEF_ROOT_DIR="$PWD/.deps/cef_binary_7871_linux_x86_64" \
+  -DENABLE_BROWSER=ON -DENABLE_SCRIPTING=OFF -DENABLE_VLC=OFF
 cmake --build build_ubuntu --parallel
 packaging/deb/package-deb.sh build_ubuntu dist
 ```
@@ -65,7 +68,7 @@ still produces `obs-studio`, which is what an unforked build does.
 
 ```powershell
 cmake --preset windows-ci-x64 -DOBS_VERSION_OVERRIDE=0.1.0 -DWEBMIX_PACKAGE_NAME=webmix `
-  -DENABLE_BROWSER=OFF -DENABLE_SCRIPTING=OFF
+  -DENABLE_SCRIPTING=OFF
 cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
 cmake --install build_x64 --prefix build_x64/install --config RelWithDebInfo
 pwsh -File packaging/windows/package.ps1 -BuildDir build_x64 -OutDir dist
@@ -73,6 +76,8 @@ pwsh -File packaging/windows/package.ps1 -BuildDir build_x64 -OutDir dist
 
 The presets download the prebuilt obs-deps and Qt6 packages listed in
 `CMakePresets.json`, so a Windows machine only needs Visual Studio and CMake.
+`windows-ci-x64` enables the Browser source and fetches CEF along with the
+other dependencies.
 
 ## The pacman repository
 

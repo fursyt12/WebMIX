@@ -340,7 +340,11 @@ export class ObsApi {
 
   async getInputKindList() {
     const data = await this.request('GetInputKindList');
-    return data.inputKinds ?? [];
+    const kinds = data.inputKinds ?? [];
+    // The native service also sends what OBS itself calls each kind ("Display
+    // Capture"). The websocket transport sends ids only, so fall back to those.
+    const names = data.inputKindNames ?? [];
+    return kinds.map((kind, index) => ({ kind, name: names[index] || kind }));
   }
 
   async getInputDefaultSettings(inputKind) {
