@@ -54,6 +54,13 @@ QByteArray EncodeJpeg(const QImage &image, int quality);
 /*! Number of running streams, to bound the cost of many open tabs. */
 int ActiveStreams();
 
+/*! Frames written to every preview client since start.
+ *
+ * The browser paints a multipart JPEG stream itself, so JavaScript cannot
+ * count what it receives. This is what lets the UI say whether the host is
+ * actually keeping up, instead of the user guessing from how it feels. */
+quint64 FramesSent();
+
 /*!
  * Streams JPEG frames for one source to one socket.
  *

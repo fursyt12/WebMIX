@@ -203,6 +203,7 @@ export async function openPropertiesDialog({ api, store, sourceName, onStatus })
     };
 
     clear(dialog.body);
+    dialog.body.appendChild(container);
     render();
     if (!(schema.properties ?? []).length) {
       container.appendChild(h('div.obs-empty', { text: 'This source has no configurable settings' }));
@@ -1485,7 +1486,17 @@ export function openAboutDialog({ store, onStatus }) {
       h('div.obs-about-subtitle', { text: 'A web frontend for OBS Studio' }),
       h('table.obs-table', {}, [
         h('tr', {}, [h('th', { text: 'OBS Studio' }), h('td', { text: obsVersion(version) })]),
-        h('tr', {}, [h('th', { text: 'obs-websocket' }), h('td', { text: version.obsWebSocketVersion ?? state.connection.obsWebSocketVersion ?? '-' })]),
+        // Which channel is in use is worth showing: a page served by OBS drives
+        // the application directly, anything else goes through the plugin.
+        state.connection.native
+          ? h('tr', {}, [
+              h('th', { text: 'Control channel' }),
+              h('td', { text: 'Native (in-process, no websocket)' }),
+            ])
+          : h('tr', {}, [
+              h('th', { text: 'obs-websocket' }),
+              h('td', { text: version.obsWebSocketVersion ?? state.connection.obsWebSocketVersion ?? '-' }),
+            ]),
         h('tr', {}, [h('th', { text: 'RPC Version' }), h('td', { text: String(version.rpcVersion ?? state.connection.rpcVersion ?? '-') })]),
         h('tr', {}, [h('th', { text: 'Platform' }), h('td', { text: version.platformDescription ?? version.platform ?? '-' })]),
         h('tr', {}, [h('th', { text: 'Connected to' }), h('td', { text: state.connection.url || '-' })]),

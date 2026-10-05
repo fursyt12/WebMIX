@@ -2,8 +2,15 @@
 #
 # Adds the built-in HTTP server that delivers the web/ directory and exposes
 # the control endpoints the websocket protocol does not cover (shutdown, and
-# the obs-websocket connection details).  Used by `obs --web`, where the Qt
-# window is never shown and the web interface is the only UI.
+# the obs-websocket connection details).  Used by web mode (the default launch),
+# where the Qt window is never shown and the web interface is the only UI.
+
+# The preview encoder writes JPEG through libjpeg directly rather than through
+# Qt's writer, for two reasons that both matter at 60 fps: Qt enables Huffman
+# optimisation (about 3x the encode time for a few percent of size), and it
+# picks the chroma subsampling for us. See WebMixPreview.cpp.
+find_package(JPEG REQUIRED)
+target_link_libraries(obs-studio PRIVATE JPEG::JPEG)
 
 target_sources(
   obs-studio
@@ -12,6 +19,14 @@ target_sources(
     webmix/WebMixBridge.cpp
     webmix/WebMixFiles.cpp
     webmix/WebMixBridge.hpp
+    webmix/WebMixControl.cpp
+    webmix/WebMixControl.hpp
+    webmix/WebMixControlInternal.hpp
+    webmix/WebMixControlEvents.cpp
+    webmix/WebMixControl_General.cpp
+    webmix/WebMixControl_Scenes.cpp
+    webmix/WebMixControl_Inputs.cpp
+    webmix/WebMixControl_Outputs.cpp
     webmix/WebMixOperations.cpp
     webmix/WebMixPreview.cpp
     webmix/WebMixPreview.hpp
@@ -49,7 +64,8 @@ install(
 )
 
 # Packages also install the same binary as `webmix`, so the web mode has an
-# obvious entry point: `webmix --web`. macOS ships an app bundle instead.
+# obvious entry point: `webmix` (web mode is the default). macOS ships an app
+# bundle instead.
 if(UNIX AND NOT APPLE)
   install(
     CODE

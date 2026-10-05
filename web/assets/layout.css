@@ -1523,6 +1523,30 @@ body.obs-app {
   touch-action: none;
 }
 
+/* Snap guides: the canvas lines an item is currently stuck to. One line per
+   axis at most, spanning the whole pane so the alignment is obvious. */
+.obs-preview-guide {
+  position: absolute;
+  background: var(--obs-warning, #f0a000);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.obs-preview-guide.is-x {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+}
+
+.obs-preview-guide.is-y {
+  left: 0;
+  right: 0;
+  height: 1px;
+  margin-top: -0.5px;
+}
+
 .obs-preview-pane.is-selected .obs-preview-image {
   cursor: move;
 }

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "WebMIX - browser frontend for OBS Studio (obs-websocket v5 client + full web UI)",
+  "description": "WebMIX - browser frontend for OBS Studio (native in-process control + web UI)",
   "license": "GPL-2.0-or-later",
   "engines": {
     "node": ">=20"
@@ -15,7 +15,9 @@
     "serve": "node server.mjs",
     "start": "node server.mjs",
     "enable-websocket": "node tools/enable-websocket.mjs",
-    "test:live": "node tools/obs-live-check.mjs"
+    "test:live": "node tools/obs-live-check.mjs",
+    "test:native": "node tools/native-live-check.mjs",
+    "test:native:browser": "node tools/native-browser-check.mjs"
   },
   "dependencies": {},
   "devDependencies": {}

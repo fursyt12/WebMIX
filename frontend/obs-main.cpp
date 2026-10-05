@@ -67,8 +67,15 @@ static bool unfiltered_log = false;
 
 /* WebMIX: headless web mode.  OBS starts without ever showing its Qt window
  * (and without a tray icon) and serves the browser frontend instead; the web
- * UI is the only interface. */
-bool web_mode = false;
+ * UI is the only interface.
+ *
+ * This is not opt-in: a plain launch - including a double-clicked obs64.exe on
+ * Windows, which passes no arguments at all - comes up in web mode.  The one
+ * way back to the classic window is `--no-web` (alias `--native`). */
+bool web_mode = true;
+bool opt_web_open_browser = true;
+static bool opt_web_port_set = false;
+static bool opt_web_host_set = false;
 uint16_t opt_web_port = 4456;
 std::string opt_web_host = "127.0.0.1";
 bool opt_start_streaming = false;
@@ -550,6 +557,40 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 		program.AppInit();
 		delete_oldest_file(false, "obs-studio/profiler_data");
 
+		/* WebMIX: now that AppInit() has opened global.ini, fill in the web
+		 * settings it holds.  This has to happen here and not in main(): the
+		 * config used to be read before OBSApp existed, where App() is qApp
+		 * and qApp is still null, which segfaulted every plain launch. */
+		if (web_mode) {
+			config_t *appConfig = App()->GetAppConfig();
+
+			/* No native UI means no dialogs: suppress the missing-files
+			 * prompt, which would otherwise block an unattended start. */
+			opt_disable_missing_files_check = true;
+
+			if (!opt_web_port_set) {
+				const int port = config_get_int(appConfig, "General", "WebPort");
+				if (port > 0 && port < 65536) {
+					opt_web_port = (uint16_t)port;
+				}
+			}
+
+			if (!opt_web_host_set) {
+				const char *host = config_get_string(appConfig, "General", "WebHost");
+				if (host && *host) {
+					opt_web_host = host;
+				}
+			}
+
+			/* An explicit --no-browser only ever turns this off. */
+			if (!config_get_bool(appConfig, "General", "WebOpenBrowser")) {
+				opt_web_open_browser = false;
+			}
+
+			blog(LOG_INFO, "[WebMIX] Web mode: %s:%u (use --no-web for the native window)",
+			     opt_web_host.c_str(), opt_web_port);
+		}
+
 		OBSTranslator translator;
 		program.installTranslator(&translator);
 
@@ -985,16 +1026,25 @@ int main(int argc, char *argv[])
 			safe_mode = true;
 
 		} else if (arg_is(argv[i], "--web", nullptr)) {
+			/* Accepted so existing shortcuts and scripts keep working; web
+			 * mode is already what a plain launch does. */
 			web_mode = true;
-			/* No native UI means no dialogs: suppress the missing-files
-			 * prompt, which would otherwise block an unattended start. */
-			opt_disable_missing_files_check = true;
+
+		} else if (arg_is(argv[i], "--no-web", nullptr) || arg_is(argv[i], "--native", nullptr)) {
+			/* The one way back to the classic OBS window. */
+			web_mode = false;
+
+		} else if (arg_is(argv[i], "--no-browser", nullptr)) {
+			/* For autostart entries and scripts: serve, but do not steal
+			 * focus with a browser window. */
+			opt_web_open_browser = false;
 
 		} else if (arg_is(argv[i], "--web-port", nullptr)) {
 			if (++i < argc) {
 				const int port = atoi(argv[i]);
 				if (port > 0 && port < 65536) {
 					opt_web_port = (uint16_t)port;
+					opt_web_port_set = true;
 				} else {
 					blog(LOG_WARNING, "Ignoring invalid --web-port value '%s'", argv[i]);
 				}
@@ -1003,6 +1053,7 @@ int main(int argc, char *argv[])
 		} else if (arg_is(argv[i], "--web-host", nullptr)) {
 			if (++i < argc) {
 				opt_web_host = argv[i];
+				opt_web_host_set = true;
 			}
 
 		} else if (arg_is(argv[i], "--only-bundled-plugins", nullptr)) {
@@ -1078,7 +1129,11 @@ int main(int argc, char *argv[])
 				"--multi, -m: Don't warn when launching multiple instances.\n\n"
 				"--safe-mode: Run in Safe Mode (disables third-party plugins, scripting, and WebSockets).\n"
 				"--only-bundled-plugins: Only load included (first-party) plugins\n"
-				"--web: Run without the native window and serve the web interface (implies --disable-missing-files-check).\n"
+				"--web: Serve the web interface instead of the native window (this is the default).\n"
+				"       The page controls OBS directly through the built-in control service;\n"
+				"       obs-websocket is not required, but is still started for other clients.\n"
+				"--no-web, --native: Start the classic OBS window instead of the web interface.\n"
+				"--no-browser: Do not open the web interface in a browser on start.\n"
 				"--web-port <port>: Port for the web interface (default 4456).\n"
 				"--web-host <address>: Address for the web interface (default 127.0.0.1; use 0.0.0.0 for the LAN).\n"
 				"--verbose: Make log more verbose.\n"
@@ -1098,30 +1153,6 @@ int main(int argc, char *argv[])
 			std::cout << "OBS Studio - " << App()->GetVersionString(false) << "\n";
 			exit(0);
 		}
-	}
-
-	/* WebMIX: web mode can also be made permanent through global.ini, so OBS
-	 * can be used as a background service with only the browser interface:
-	 *
-	 *   [General]
-	 *   WebMode=true
-	 */
-	if (!web_mode && config_get_bool(App()->GetAppConfig(), "General", "WebMode")) {
-		web_mode = true;
-		opt_disable_missing_files_check = true;
-
-		const int port = config_get_int(App()->GetAppConfig(), "General", "WebPort");
-		if (port > 0 && port < 65536) {
-			opt_web_port = (uint16_t)port;
-		}
-
-		const char *host = config_get_string(App()->GetAppConfig(), "General", "WebHost");
-		if (host && *host) {
-			opt_web_host = host;
-		}
-
-		blog(LOG_INFO, "[WebMIX] Web mode enabled from global.ini (General > WebMode), %s:%u",
-		     opt_web_host.c_str(), opt_web_port);
 	}
 
 #if ALLOW_PORTABLE_MODE

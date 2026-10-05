@@ -1,14 +1,24 @@
 # WebMIX — the OBS Studio UI in a browser
 
 WebMIX is a web frontend for OBS Studio. It reproduces the OBS desktop UI
-(docks, menus, dialogs, theme) in the browser and drives a running OBS over
-**obs-websocket 5.x**, so scenes, sources, audio, transitions, outputs and
-settings can all be operated from any browser on the network.
+(docks, menus, dialogs, theme) in the browser and drives OBS **directly**: the
+page calls a native control service that lives inside the OBS process and runs
+libobs on its behalf. Scenes, sources, audio, transitions, outputs, filters,
+properties and settings are all operated from the browser, with no plugin to
+enable, no port to open and no protocol server in the way.
 
 ```
-browser (WebMIX SPA) ──ws://host:4455──▶ OBS Studio + obs-websocket
-        ▲
-        └── served by: node server.mjs   (or any static file host)
+browser (WebMIX SPA)
+   │  POST /api/obs/request    request / response      ─┐
+   │  GET  /api/obs/events     Server-Sent Events       ├─▶ OBS process
+   │  /api/*                   preview, files, remux…  ─┘   (frontend/webmix,
+   │                                                          in-process libobs)
+   └── served by: OBS itself (the default launch), or node server.mjs while developing
+
+obs-websocket is still supported as an alternative transport: a page that is
+not served by OBS - the development server, or one pointed at another machine -
+connects to ws://host:4455 instead, with the same UI and the same state
+reducers. See docs/architecture.md for why the native channel is the default.
 ```
 
 The frontend is dependency-free ES modules — no build step, no bundler, no CDN.
@@ -16,44 +26,63 @@ The frontend is dependency-free ES modules — no build step, no bundler, no CDN
 the colours, control heights, scrollbars and fader curves are OBS's, not an
 approximation.
 
-## Quick start — web-only mode (recommended)
+## Quick start — web-only mode (the default)
 
 OBS runs **without any native window** and serves the frontend itself, so the
-browser is the only interface:
+browser is the only interface. This is what a plain launch does — including
+double-clicking `obs64.exe` on Windows, which passes no arguments at all:
 
 ```bash
-obs --web                     # http://127.0.0.1:4460/
-obs --web --web-host 0.0.0.0  # reachable from the LAN
-obs --web --web-port 8080     # different port
+obs                           # http://127.0.0.1:4456/
+obs --web-host 0.0.0.0        # reachable from the LAN
+obs --web-port 8080           # different port
+obs --no-browser              # autostart: serve, but do not open a browser
+obs --no-web                  # the classic OBS window instead
 ```
 
-What `--web` does:
+`--web` is still accepted, so existing shortcuts and scripts keep working, but
+it no longer changes anything. What web mode does:
 
 * never shows the OBS window and creates **no tray icon**;
-* starts the built-in web server (QTcpServer-based) that serves this directory;
-* **enables obs-websocket automatically** before it loads, so there is nothing
-  to configure;
+* starts the built-in web server (QTcpServer-based) that serves this directory
+  and carries the native control channel the page talks to;
+* opens the page in the default browser on start, unless `--no-browser` was
+  given or `[General] WebOpenBrowser=false` is set in `global.ini`;
+* also enables obs-websocket for *other* clients, which the web interface does
+  not use itself (set `[General] WebSocketAutoEnable=false` to leave the plugin
+  exactly as configured);
 * suppresses the startup dialogs that would otherwise block an invisible
   process (missing files, plugin-load failures, unclean shutdown);
 * exits instead of prompting when another instance is already running.
 
-The page auto-connects: it reads `/obs-config.json` from the embedded server,
-which reports the obs-websocket port and password from OBS's own config.
+The page connects itself: `/api/status` tells it that the host runs the native
+control service, so it starts driving OBS straight away. It only reads
+`/obs-config.json` (obs-websocket's port and password) when it has to fall back
+to the websocket transport.
 
-To make it permanent without a command-line flag, put this in `global.ini`:
+The port, host and browser behaviour can be set in `global.ini` instead of on
+the command line:
 
 ```ini
 [General]
-WebMode=true
 WebPort=4456
 WebHost=127.0.0.1
+WebOpenBrowser=true
 ```
+
+`--no-web` (alias `--native`) is the only way back to the classic window; the
+old `WebMode` key is ignored, so an existing `global.ini` cannot silently keep
+an upgraded install on the native UI.
 
 ### Embedded control endpoints
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/status` | Identifies the host (`webmix: true`), version, web root, whether shutdown is available. |
+| `GET /api/status` | Identifies the host (`webmix: true`), version, web root, whether shutdown is available, and whether the native control channel is present (`obsControl: true`). |
+| `POST /api/obs/request` | **The control channel.** `{requestType, requestData}` in, `{requestType, requestStatus, responseData}` out. A refused request is still an HTTP 200; the outcome is in `requestStatus`. |
+| `POST /api/obs/batch` | The same, for a list of requests in one round trip (`{requests:[…]}` → `{results:[…]}`). The UI uses it for the per-input audio refresh. |
+| `GET /api/obs/requests` | Every request type this build implements. |
+| `GET /api/obs/events` | The **event stream**: Server-Sent Events, one `data:` frame per OBS event (`{eventType, eventIntent, eventData}`). Optional `?intents=<bitmask>`. |
 | `GET /obs-config.json` | obs-websocket port/password/enabled, read from OBS's config. |
 | `POST /api/shutdown` | Shuts OBS down. This is what **File > Exit** calls, so OBS can be stopped from the browser. Refused with 409 while a remux is running unless `force=1` is passed. |
 | `GET /api/preview.mjpg` | Live preview: JPEG frames as `multipart/x-mixed-replace` (`source`, `width`, `height`, `fps`, `quality`). |
@@ -78,11 +107,15 @@ the resolved path must stay inside the web root.
 
 ## Quick start — external server
 
-Useful for development, or to serve the UI from a different machine. Start OBS
-with `--web` as well and this server **forwards the bridge paths to it**
-(`--bridge <url>`, default `http://127.0.0.1:4456`), so the externally served
-page gets the same feature set: GPU preview, property schema, multiview, file
-access and the extra operations. Without a bridge it still works, but the
+Useful for development, or to serve the UI from a different machine. Leave OBS
+in its default web mode and this server **forwards every `/api/*` path to it**
+(`--bridge <url>`, default `http://127.0.0.1:4456`) - including the SSE event
+stream, which is piped rather than buffered. The externally served page then
+gets the identical feature set, native control included, because it is talking
+to the same service.
+
+Without a bridge the page falls back to obs-websocket (start it in OBS under
+Tools > WebSocket Server Settings, or leave web mode's auto-enable on) and the
 preview falls back to `GetSourceScreenshot` polling.
 
 ```bash
@@ -99,7 +132,9 @@ npm start                                # http://127.0.0.1:8080/
 ```
 
 Query parameters beat both the remembered values and the host's config, which
-makes it possible to point one copy of the UI at a different OBS.
+makes it possible to point one copy of the UI at a different OBS (over
+obs-websocket). `?host=&port=` also *disables* the native channel, so a page
+served by OBS can still be pointed at another instance.
 
 ## Running OBS unattended (autostart in the background)
 
@@ -125,19 +160,22 @@ Suggested autostart command line (Windows shortcut / Linux `.desktop`
 `Exec=`):
 
 ```
-obs --web --web-port 4460
+obs --web-port 4460 --no-browser
 ```
 
-`--web` already implies `--disable-missing-files-check`. Add
+Web mode already implies `--disable-missing-files-check`, and `--no-browser`
+keeps an autostart entry from opening a browser window on every login. Add
 `--startrecording` / `--startstreaming` / `--startvirtualcam` /
 `--startreplaybuffer` to start outputs immediately.
 
 ## Tests
 
 ```bash
-npm test              # 90 unit/integration tests (protocol client, store, fader, MJPEG parser, UI structure)
-npm run test:browser  # headless-Chromium end-to-end check of the mock-backed UI (66 assertions)
-npm run test:live     # against a real `obs --web` instance (60 assertions, incl. GPU pixels and a remux)
+npm test                      # unit/integration tests (both transports, store, fader, MJPEG parser, UI structure)
+npm run test:browser          # headless-Chromium end-to-end check of the mock-backed UI
+npm run test:live             # against a real networked OBS instance over obs-websocket (GPU pixels, remux)
+npm run test:native           # against a real networked OBS instance over the native channel
+npm run test:native:browser   # real Chromium + real OBS: the UI drives OBS with no websocket at all
 ```
 
 `npm run test:browser` boots the mock obs-websocket server, loads the real UI in
@@ -146,9 +184,17 @@ list, source list, mixer strips, transitions, controls, status bar, menu bar and
 Studio Mode all rendered — and that the page produced **no** console errors or
 uncaught exceptions. It writes screenshots to `/tmp/webmix-smoke*.png`.
 
+`test:native` is the one that matters most. Against a live OBS it checks that
+every request type the UI calls is implemented, that the read requests return
+the shapes the panels render, that writes come back as events on the stream, and
+that audio meters actually flow. `test:native:browser` then loads the real UI in
+Chromium against that same OBS and fails if the page constructs even one
+`WebSocket` — which is the whole point of the architecture.
+
 The mock server (`test/helpers/mock-obs.mjs`) speaks the real protocol
-(including the SHA-256 challenge/auth handshake), so the client is exercised
-against a faithful peer rather than stubs.
+(including the SHA-256 challenge/auth handshake), and
+`test/helpers/native-obs.mjs` implements the four `/api/obs/*` endpoints, so
+each client is exercised against a faithful peer rather than stubs.
 
 ## Layout
 
@@ -163,9 +209,10 @@ web/
   src/
     protocol.js         GENERATED (247 requests/events/enums) — tools/gen-protocol.mjs
     hash.js             SHA-256 + base64 (no crypto.subtle: works over plain http)
-    obs-client.js       obs-websocket v5 client (auth, requests, batches, events, reconnect)
+    obs-direct.js       NATIVE client: HTTP requests + SSE events, no websocket
+    obs-client.js       obs-websocket v5 client — the fallback transport
     store.js            state mirror + OBS event reducers, topic-based re-render
-    api.js              high-level OBS operations
+    api.js              high-level OBS operations (transport-agnostic)
     fader.js            OBS log fader curve + meter scale (ported from libobs)
     dom.js              tiny DOM/reconcile helpers
     ui/                 menu, docks, panels, preview, dialogs, icons
@@ -174,8 +221,22 @@ web/
     enable-websocket.mjs
     browser-smoke.mjs
   docs/
+    architecture.md     how the native control channel works and why
     ui-spec.md          extracted OBS window/menu/dialog structure
     theme-spec.md       extracted theme tokens and per-widget rules
+```
+
+The native channel is implemented in `frontend/webmix/`:
+
+```
+WebMixServer.{hpp,cpp}       QTcpServer: static files + /api/* + the SSE stream
+WebMixControl.{hpp,cpp}      the control service: dispatch, lookups, serializers
+WebMixControlInternal.hpp    the seam the handler groups implement against
+WebMixControl_General.cpp    version, stats, hotkeys, profiles, video/output settings
+WebMixControl_Scenes.cpp     scenes, studio mode, groups, scene items
+WebMixControl_Inputs.cpp     inputs, audio, sources, screenshots, filters
+WebMixControl_Outputs.cpp    transitions, stream, record, replay buffer, virtual cam
+WebMixControlEvents.cpp      the event bridge: libobs signals -> SSE frames
 ```
 
 ## What is implemented
@@ -216,6 +277,25 @@ Everything below operates the **live** OBS instance:
   scale-to-window/canvas/output are GPU transforms). Studio Mode's dual
   Preview/Program panes, lock, click-to-switch and the screenshot menu work the
   same way. See "Preview backends" below.
+  The stream runs at **60 fps** and each frame is encoded at the size the pane
+  actually shows rather than at the canvas size, so the browser decodes and
+  uploads a fraction of the pixels - that difference is what makes the preview
+  feel like the native window instead of a slideshow. Frames are encoded at
+  quality 92, which is where the encoder switches to **4:4:4** chroma: below it
+  colour is stored at a quarter of the resolution and coloured text and UI edges
+  smear visibly. The encoder is libjpeg called directly (`WebMixPreview.cpp`)
+  rather than `QImage::save`, because Qt turns on Huffman optimisation - about
+  three times the encode time for a few percent of size, and encode time is what
+  decides whether a large pane can still hold 60 fps. A `ResizeObserver` follows
+  splitter drags, and the preview's context menu reports the frame rate actually
+  painted (e.g. `Preview: 59.8 fps (stream, 800×450)`).
+* **Select, move and scale in the preview** — click a source to select it, drag
+  to move, drag a handle to resize; the selection frame is drawn from OBS's own
+  scene-item transform. While dragging, an edge or a centre that comes within
+  8 px of a canvas edge or the canvas centre **sticks** to it and a guide line
+  shows which line it caught. Hold **Alt** to place it exactly where the pointer
+  is. The geometry is pure and lives in `src/scene-geometry.js`, so it is unit
+  tested without a browser.
 * **Properties and Filters** — rendered from the real OBS property schema via
   the WebMIX bridge, so the dialogs show the same localised labels, sliders,
   ranges, list/radio choices, colour pickers, font pickers, groups and
@@ -250,11 +330,13 @@ Everything below operates the **live** OBS instance:
 ## Security
 
 The embedded server is deliberately **unauthenticated**: it exists to serve a
-local control surface, and it has to hand the browser the obs-websocket password
-(`/obs-config.json`) so the UI can connect without asking. It binds to
-`127.0.0.1` by default.
+local control surface that is reachable from the browser, and requiring a
+credential the browser has no way to obtain would only add a step, not a
+boundary. It binds to `127.0.0.1` by default. `/obs-config.json` still hands out
+the obs-websocket password, because the fallback transport has to connect
+somehow - but the native channel the page normally uses needs no secret at all.
 
-Binding it beyond loopback (`--web --web-host 0.0.0.0`, or `WebHost` in
+Binding it beyond loopback (`--web-host 0.0.0.0`, or `WebHost` in
 `global.ini`) therefore exposes both control of OBS and read access to its
 config, log and recording directories to anyone who can reach the port. OBS logs
 a warning when that happens. On an untrusted network, put an authenticating
@@ -268,8 +350,15 @@ so symlinks cannot escape) and all such attempts are refused with 404.
 
 | Backend | When | How |
 | --- | --- | --- |
-| **WebGPU** | OBS serves the UI (`--web`) and the browser exposes `navigator.gpu` | JPEG frames stream over `/api/preview.mjpg`; `createImageBitmap` decodes them and a WGSL shader draws an aspect-fitted quad. Zoom/scaling are GPU transforms. |
-| Screenshots | External static server, or no WebGPU | `GetSourceScreenshot` over obs-websocket, painted into an `<img>` (see the panel's context menu for the active backend). |
+| **WebGPU** | OBS serves the UI (the default) and the browser exposes `navigator.gpu` | JPEG frames stream over `/api/preview.mjpg` at 60 fps and at the pane's size; `createImageBitmap` decodes them and a WGSL shader draws an aspect-fitted quad. Zoom/scaling are GPU transforms. |
+| **Native stream** | OBS serves the UI but the browser has no WebGPU (Firefox on Linux, for instance) | The same `/api/preview.mjpg` endpoint goes straight into an `<img>`. Browsers have decoded multipart JPEG themselves for decades, so there is **no JavaScript per frame at all** - this is what makes such a browser preview as smooth as the native window instead of a 15 fps slideshow. |
+| Screenshots | A page served by a plain static host, with no bridge to OBS | `GetSourceScreenshot` polling, painted into an `<img>`. Slow by nature; the panel's context menu names the active backend. |
+
+A browser without WebGPU would otherwise fall back to screenshot polling, which
+is a round trip per frame - that is the "slideshow" case, and the native stream
+backend exists to remove it. If a browser cannot show a multipart JPEG in an
+`<img>` either, the panel notices within three seconds and falls back to
+polling rather than showing a frozen frame.
 
 Two implementation details worth knowing:
 
@@ -298,10 +387,16 @@ a red source's colour back out of OBS.
 
 ## Known gaps (and why)
 
-obs-websocket exposes a large but finite API. The following cannot be done over
-the protocol today; they need either the OBS desktop UI or a WebMIX-side
-extension. Each one reports a clear message in the UI instead of failing
-silently.
+These are limits of the *vocabulary*, not of the transport: the native control
+service implements exactly the request types the UI uses, and the rows below are
+things no transport exposes today. Each one reports a clear message in the UI
+instead of failing silently.
+
+Several rows that used to be here - scene ordering, transition management,
+property schemas, hotkey rebinding, remuxing, file access, exiting OBS - needed
+a side channel precisely because obs-websocket had no request for them. They are
+now ordinary `/api/*` endpoints of the same in-process service, so they work
+whenever the page is served by OBS, which is the normal case.
 
 | Area | Gap |
 | --- | --- |
@@ -316,9 +411,9 @@ silently.
 | "Hide in Mixer", mixer pin/lock | Not exposed. |
 | Recordings / logs / config folders | Solved via `/api/files/*` (list, download, view). File > Remux Recordings is solved too: the queue and its worker run inside OBS (`/api/remux`), so a recording can be converted to MP4 from the browser. Uploading a log to obsproject.com, the Plugin Manager and the Auto-Configuration Wizard are still desktop-only. |
 | Always On Top, OS folders, tray | Apply to the desktop window, not the browser. |
-| Exit OBS | obs-websocket has no shutdown request, but the embedded server adds `POST /api/shutdown`, so File > Exit works when OBS serves the UI (`--web`). With an external server there is still no way. |
+| Exit OBS | obs-websocket has no shutdown request, but the embedded server adds `POST /api/shutdown`, so File > Exit works when OBS serves the UI (the default). With an external server there is still no way. |
 
-The browser frontend is now served by OBS itself in `--web` mode
+The browser frontend is now served by OBS itself in its default web mode
 (`frontend/webmix/WebMixServer.cpp`, a QTcpServer-based static server plus the
 control endpoints), so an installed OBS needs nothing else. `node server.mjs`
 remains as the development/remote option.
@@ -334,7 +429,7 @@ source build: `/usr/bin/obs` with a `/usr/bin/webmix` symlink, the plugins under
 the WebGPU preview and every bridge endpoint work straight after installing.
 
 ```bash
-webmix --web              # http://127.0.0.1:4460/
+webmix                    # http://127.0.0.1:4456/
 ```
 
 See `packaging/README.md` for how to build each package yourself; Arch users can
@@ -352,9 +447,12 @@ dependencies. They can all be built into a local prefix without root:
 
 | Dependency | Why | Note |
 | --- | --- | --- |
+| **extra-cmake-modules** (ECM) | `cmake/linux/ecmconfig.cmake` requires it | `pacman -S extra-cmake-modules`, or point `ECM_DIR` at a stub whose `ECM_MODULE_PATH` is Qt6's `3rdparty/extra-cmake-modules/find-modules` - this checkout calls no `ecm_*` function and only needs `FindX11_XCB.cmake` from it |
+| **nlohmann/json** | the frontend's plugin manager and updater | header-only, but it has to be the *full* `include/nlohmann/` tree; the single-include `json.hpp` alone is not enough because `GoLiveAPI_CensoredJson.hpp` includes `nlohmann/json_fwd.hpp` |
+| **libjpeg** (dev) | the WebMIX preview encoder calls libjpeg directly instead of going through Qt | build-time only: Qt already needs libjpeg at runtime, so nothing new is shipped |
 | `extra-cmake-modules` (ECM) | `cmake/linux/ecmconfig.cmake` requires it | `pacman -S extra-cmake-modules`, or install from source |
 | `libwebsockets` | obs-websocket's server backend | `pacman -S libwebsockets`, or build from source |
-| **MbedTLS 3.x** | `plugins/obs-outputs` requires `3...<4`; Arch ships 4.2.0 | build `v3.6.2` from source; on GCC 16 it needs `-Wno-unterminated-string-initialization` |
+| **MbedTLS 3.x** | `plugins/obs-outputs` requires `3...<4`; Arch ships 4.2.0 | build `v3.6.2` from source with `-DCMAKE_POSITION_INDEPENDENT_CODE=ON` (a static, non-PIC build links `obs-outputs.so` with *"relocation … can not be used when making a shared object"*); on GCC 16 it also needs `-Wno-unterminated-string-initialization` |
 | `nlohmann_json` >= 3.11 | obs-websocket | header-only; install from source |
 | `websocketpp` >= 0.8 | obs-websocket | header-only; copy `websocketpp/` into the prefix's `include/` |
 | standalone `asio` **1.30.2** | obs-websocket | header-only, but must be **pinned**: asio master removed `expires_from_now()`, which websocketpp 0.8.2 still calls |

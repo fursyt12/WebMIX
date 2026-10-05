@@ -40,8 +40,11 @@
 
 #include <QCheckBox>
 #include <QDesktopServices>
+#include <QUrl>
 /* WebMIX: used to enable obs-websocket before it loads, in --web mode. */
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #if defined(_WIN32) || defined(ENABLE_SPARKLE_UPDATER)
@@ -84,6 +87,7 @@ extern string opt_starting_profile;
 
 /* WebMIX headless web mode (see obs-main.cpp). */
 extern bool web_mode;
+extern bool opt_web_open_browser;
 extern uint16_t opt_web_port;
 extern std::string opt_web_host;
 
@@ -193,14 +197,41 @@ QAccessibleInterface *alignmentSelectorFactory(const QString &classname, QObject
 	return nullptr;
 }
 
-/* WebMIX: the browser frontend talks to OBS over obs-websocket, which ships
- * with OBS but starts disabled.  In --web mode there is no UI to enable it
- * from, so flip the setting on disk before the plugin reads its config. */
+/* WebMIX: obs-websocket is optional.
+ *
+ * The web interface no longer talks to it at all - it drives libobs through
+ * the native control service - so the plugin is not needed to run OBS without
+ * a window.  It is still started in --web mode by default, because a headless
+ * instance is exactly where a third-party websocket client has no other way
+ * in, and because it costs nothing to leave available.  Set
+ *
+ *   [General]
+ *   WebSocketAutoEnable=false
+ *
+ * to leave the plugin exactly as its own settings say. */
 void EnsureWebSocketServerEnabled()
 {
+	/* Opt out only when it was explicitly turned off: config_get_bool()
+	 * defaults to false, and the default here is to leave the plugin
+	 * available. */
+	config_t *appConfig = App()->GetAppConfig();
+	if (config_has_user_value(appConfig, "General", "WebSocketAutoEnable") &&
+	    !config_get_bool(appConfig, "General", "WebSocketAutoEnable")) {
+		blog(LOG_INFO, "[WebMIX] obs-websocket left as configured (WebSocketAutoEnable=false)");
+		return;
+	}
+
 	char path[512];
 	if (GetAppConfigPath(path, sizeof(path), "obs-studio/plugin_config/obs-websocket/config.json") <= 0) {
 		blog(LOG_WARNING, "[WebMIX] Could not resolve the obs-websocket config path");
+		return;
+	}
+
+	/* This runs before any plugin has loaded, so on a first run the plugin has
+	 * not created its own directory yet and the write below would fail. */
+	const QFileInfo configInfo(QString::fromUtf8(path));
+	if (!QDir().mkpath(configInfo.absolutePath())) {
+		blog(LOG_WARNING, "[WebMIX] Could not create %s", qUtf8Printable(configInfo.absolutePath()));
 		return;
 	}
 
@@ -244,7 +275,9 @@ void EnsureWebSocketServerEnabled()
 	file.write(QJsonDocument(config).toJson(QJsonDocument::Indented));
 	file.close();
 
-	blog(LOG_INFO, "[WebMIX] Enabled the obs-websocket server (port %d) so the web interface can connect",
+	blog(LOG_INFO,
+	     "[WebMIX] Enabled the obs-websocket server (port %d) for third-party clients; the "
+	     "web interface itself uses the native control service",
 	     config.value("server_port").toInt(4455));
 }
 
@@ -411,9 +444,11 @@ bool OBSApp::InitGlobalConfigDefaults()
 	 * global.ini to get the original prompt back. */
 	config_set_default_bool(appConfig, "General", "WarnOnUncleanShutdown", false);
 
-	/* WebMIX: run without the native window and serve the browser frontend
-	 * instead (equivalent to the --web command line flag). */
-	config_set_default_bool(appConfig, "General", "WebMode", false);
+	/* WebMIX: web mode is the default interface, so a launch is usually a
+	 * double-click.  Put the page in front of the user instead of leaving a
+	 * process with no window at all; --no-browser (or WebOpenBrowser=false)
+	 * turns this off for autostart entries and scripts. */
+	config_set_default_bool(appConfig, "General", "WebOpenBrowser", true);
 	config_set_default_int(appConfig, "General", "WebPort", 4456);
 	config_set_default_string(appConfig, "General", "WebHost", "127.0.0.1");
 
@@ -1496,6 +1531,17 @@ bool OBSApp::OBSInit()
 			blog(LOG_ERROR, "[WebMIX] The web interface could not be started; exiting because "
 					"no other interface exists in web mode.");
 			QTimer::singleShot(0, qApp, []() { QCoreApplication::exit(1); });
+		} else if (opt_web_open_browser) {
+			const QUrl url(webMixServer->Url());
+			if (QDesktopServices::openUrl(url)) {
+				blog(LOG_INFO, "[WebMIX] Opened %s in the default browser",
+				     qUtf8Printable(url.toString()));
+			} else {
+				/* Common on a headless machine: no browser, no session bus.
+				 * The URL is in the log either way. */
+				blog(LOG_WARNING, "[WebMIX] Could not open a browser; open %s manually",
+				     qUtf8Printable(url.toString()));
+			}
 		}
 	}
 
@@ -2218,8 +2264,9 @@ void OBSApp::loadAppModules()
 	PluginMode mode = (disable_3p_plugins || safe_mode) ? PluginMode::CoreOnly : PluginMode::Full;
 	pluginManager_->setPluginMode(mode);
 
-	/* WebMIX: --web has no UI for enabling obs-websocket, and the web
-	 * frontend cannot work without it, so make sure it is on first. */
+	/* WebMIX: --web has no UI to turn obs-websocket on, so give the plugin a
+	 * chance to start for third-party clients.  The web interface itself does
+	 * not use it - see EnsureWebSocketServerEnabled(). */
 	if (web_mode) {
 		EnsureWebSocketServerEnabled();
 	}

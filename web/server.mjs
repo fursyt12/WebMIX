@@ -7,8 +7,10 @@
  *
  * No dependencies - run with:  node server.mjs [--port 8080] [--host 0.0.0.0]
  *
- * The web app talks to OBS directly over WebSocket (default port 4455), so
- * this server is only needed to deliver the files (and for `npm run dev`).
+ * The web app prefers the native control service that OBS itself serves
+ * (`/api/obs/*`, HTTP + Server-Sent Events) and only falls back to
+ * obs-websocket when it is not reachable; this server is for development and
+ * for serving the UI from a different machine, and forwards both.
  */
 import { createServer, request as httpRequest } from 'node:http';
 import { stat } from 'node:fs/promises';
@@ -29,10 +31,11 @@ const PORT = Number(getArg('port', process.env.PORT ?? 8080));
 const HOST = getArg('host', process.env.HOST ?? '127.0.0.1');
 
 /*
- * When OBS runs with --web it also serves a bridge (preview frames, property
- * schema, file access, scene/transition/hotkey operations). This server can
- * forward the bridge paths to it, so a page served from here gets the same
- * feature set - which is what makes previewing work without --web-host.
+ * When OBS runs with --web it also serves the native control channel, the
+ * preview frames, the property schema, file access and the extra operations.
+ * This server forwards every /api/* path to it - including the SSE event
+ * stream, which is piped rather than buffered - so a page served from here
+ * gets the same feature set, native control included.
  */
 const BRIDGE = new URL(getArg('bridge', process.env.WEBMIX_BRIDGE ?? 'http://127.0.0.1:4456'));
 const BRIDGE_PATHS = /^\/(api\/|obs-config\.json)/;
@@ -147,7 +150,14 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === '/health') {
-    sendJson(res, 200, { ok: true, root: ROOT, bridge: BRIDGE.origin, bridgeUp: await bridgeIsUp() });
+    sendJson(res, 200, {
+      ok: true,
+      root: ROOT,
+      bridge: BRIDGE.origin,
+      bridgeUp: await bridgeIsUp(),
+      // The bridge, when present, is the native control service.
+      obsControl: await bridgeIsUp(),
+    });
     return;
   }
 
@@ -169,9 +179,12 @@ server.listen(PORT, HOST, async () => {
   console.log(`OBS websocket config read from: ${config}`);
   console.log(
     (await bridgeIsUp())
-      ? `Forwarding bridge requests to ${BRIDGE.origin} (preview, properties, files, operations)`
-      : `No OBS bridge at ${BRIDGE.origin}: preview will fall back to screenshots. ` +
-          'Start OBS with --web, or pass --bridge <url>.'
+      ? `Forwarding /api/* to ${BRIDGE.origin} (native control, events, preview, properties, files)`
+      : `No OBS bridge at ${BRIDGE.origin}. Start OBS with --web, or pass --bridge <url>.`
   );
-  console.log('Open the page and connect to OBS (Tools > WebSocket Server Settings).');
+  console.log(
+    (await bridgeIsUp())
+      ? 'Open the page: it will drive OBS directly.'
+      : 'Without the bridge the page falls back to obs-websocket (Tools > WebSocket Server Settings).'
+  );
 });

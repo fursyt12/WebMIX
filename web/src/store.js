@@ -2,8 +2,12 @@
  * WebMIX - application state store.
  *
  * Holds a mirror of the OBS state that the UI renders, keeps it in sync from
- * obs-websocket events, and notifies subscribers by topic so panels only
- * re-render the parts that actually changed.
+ * OBS events, and notifies subscribers by topic so panels only re-render the
+ * parts that actually changed.
+ *
+ * The reducers below are written against the event names and payload fields the
+ * native control service emits; obs-websocket happens to use the same ones, so
+ * the store is transport-agnostic and neither client needed its own reducer.
  *
  * The reducer (`reduceEvent`) is pure with respect to the DOM, so it is
  * unit-tested directly in Node.
@@ -114,6 +118,8 @@ export function createState() {
     connection: {
       status: 'disconnected', // disconnected | connecting | reconnecting | connected
       url: '',
+      /** true when the page drives OBS directly instead of over obs-websocket */
+      native: false,
       obsWebSocketVersion: null,
       rpcVersion: null,
       obsVersion: null,
@@ -161,7 +167,7 @@ export function createState() {
 
 const ensureInput = (state, inputName) => {
   if (!inputName) return null;
-  state.inputs[inputName] ??= { inputName, inputKind: null, unversionedInputKind: null };
+  state.inputs[inputName] ??= { inputName, inputKind: null, unversionedInputKind: null, inputKindCaps: null };
   state.audio[inputName] ??= {
     volumeMul: 1,
     volumeDb: 0,
@@ -289,6 +295,7 @@ export function reduceEvent(state, eventType, data = {}) {
         inputUuid: data.inputUuid,
         inputKind: data.inputKind,
         unversionedInputKind: data.unversionedInputKind,
+        inputKindCaps: data.inputKindCaps ?? null,
       };
       ensureInput(state, data.inputName);
       break;

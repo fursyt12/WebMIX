@@ -65,7 +65,8 @@ export class ObsConnectionError extends Error {
 
 /* ----------------------------------------------------------------- emitter */
 
-class Emitter {
+/** Minimal event emitter shared by both transports. */
+export class Emitter {
   #listeners = new Map();
 
   on(type, fn) {

@@ -27,6 +27,11 @@ import {
  * UI only creates a VolumeControl for sources whose output flags include
  * OBS_SOURCE_AUDIO.  Browser and media sources *can* carry audio, so they stay.
  */
+/* Source output flags, from libobs' obs-source.h. `inputKindCaps` is the
+ * bitmask obs-websocket and the native service both report for an input. */
+const OBS_SOURCE_VIDEO = 1 << 0;
+const OBS_SOURCE_AUDIO = 1 << 1;
+
 const NON_AUDIO_KINDS = [
   /^image_source/,
   /^color_source/,
@@ -143,10 +148,19 @@ export class MixerPanel {
     }
 
     return names.filter((name) => {
-      const kind = state.inputs[name]?.inputKind ?? '';
+      const input = state.inputs[name];
+      const kind = input?.inputKind ?? '';
       if (NON_AUDIO_KINDS.some((re) => re.test(kind))) return false;
+
+      // `active`/`showing` describe a source's *video* state. A global audio
+      // device (desktop audio, a microphone) never produces video, so both are
+      // permanently false for it and the rule below would hide it from the
+      // mixer forever. Only apply the rule when the source can be on screen.
+      const caps = input?.inputKindCaps;
+      const hasVideo = typeof caps === 'number' ? (caps & OBS_SOURCE_VIDEO) !== 0 : true;
+
       const audio = state.audio[name];
-      if (!this.showInactive && audio && audio.active === false && audio.showing === false) {
+      if (!this.showInactive && hasVideo && audio && audio.active === false && audio.showing === false) {
         // OBS hides sources that are not active anywhere; keep them unless we
         // know they are inactive in the current scene AND not showing.
         const inScene = selectors

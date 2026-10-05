@@ -11,7 +11,7 @@ stops an unattended start.
 
 | Platform | File | Install |
 | --- | --- | --- |
-| Windows 10/11 (x64) | `webmix-@VERSION@-windows-x64.zip` | Unpack anywhere and run `bin/64bit/obs64.exe --web` (or just `obs64.exe` for the normal desktop UI). |
+| Windows 10/11 (x64) | `webmix-@VERSION@-windows-x64.zip` | Unpack anywhere and run `bin/64bit/obs64.exe` — it opens the browser interface. Add `--no-web` for the normal desktop UI. |
 | Debian / Ubuntu | `webmix_@VERSION@_amd64.deb` | `sudo apt install ./webmix_@VERSION@_amd64.deb` |
 | Debug symbols (Linux) | `webmix-dbgsym_@VERSION@_amd64.ddeb` | `sudo apt install ./webmix-dbgsym_@VERSION@_amd64.ddeb` |
 | Arch Linux | `webmix-@VERSION@-1-x86_64.pkg.tar.zst` | `sudo pacman -U webmix-@VERSION@-1-x86_64.pkg.tar.zst` |
@@ -37,16 +37,23 @@ with `packaging/arch/PKGBUILD`.
 
 ## Running it
 
+Web mode is what a plain launch does, on every platform — double-clicking
+`obs64.exe`, starting the packaged launcher, or running `obs` from a terminal
+all serve the interface and open it in the default browser:
+
 ```bash
-webmix --web                  # http://127.0.0.1:4460/
-webmix --web --web-host 0.0.0.0   # reachable from the LAN
-obs --web                     # same thing; webmix is a symlink to obs
+obs                           # http://127.0.0.1:4456/
+webmix                        # same thing; webmix is a symlink to obs
+obs --web-host 0.0.0.0        # reachable from the LAN
+obs --no-browser              # autostart: serve, but do not open a browser
+obs --no-web                  # the classic OBS window instead
 ```
 
-`--web` implies `--disable-missing-files-check`, keeps the window hidden, creates
-no tray icon and enables obs-websocket so the page can connect. Add
-`WebMode=true` to `[General]` in `global.ini` to make it the default, and
-`--startrecording` / `--startstreaming` to start an output immediately.
+Web mode implies `--disable-missing-files-check`, keeps the window hidden,
+creates no tray icon and enables obs-websocket so other clients can connect too.
+The port, host and browser behaviour can also be set in `global.ini` under
+`[General]` (`WebPort`, `WebHost`, `WebOpenBrowser`); `--startrecording` /
+`--startstreaming` start an output immediately.
 
 The interface is unauthenticated by design and the page carries the
 obs-websocket password, so bind it to loopback (the default) unless the network

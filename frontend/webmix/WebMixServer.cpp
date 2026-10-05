@@ -18,6 +18,7 @@
 #include "WebMixServer.hpp"
 
 #include "WebMixBridge.hpp"
+#include "WebMixControl.hpp"
 #include "WebMixPreview.hpp"
 #include "WebMixRemux.hpp"
 
@@ -28,8 +29,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QImage>
 #include <QMetaObject>
 #include <QSharedPointer>
@@ -217,6 +220,18 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 	blog(LOG_INFO, "[WebMIX] Serving files from: %s", qUtf8Printable(webRoot));
 	blog(LOG_INFO, "[WebMIX] The OBS window is hidden; use the web interface to control OBS.");
 	blog(LOG_INFO, "[WebMIX] ---------------------------------------------------------------");
+
+	/* The control service is what the browser actually talks to: it drives
+	 * libobs directly, so the page needs neither obs-websocket nor the port
+	 * and password that used to come with it.  Start it only once the server
+	 * is listening, so an unusable port does not leave the event bridge
+	 * metering audio for nobody. */
+	WebMixControl::Start();
+	keepAlive = new QTimer(this);
+	keepAlive->setInterval(15000);
+	connect(keepAlive, &QTimer::timeout, this, &WebMixServer::PingEventStreams);
+	keepAlive->start();
+
 	return true;
 }
 
@@ -224,6 +239,23 @@ void WebMixServer::Stop()
 {
 	/* A remux runs on its own thread and must not outlive libobs. */
 	WebMixRemux::Shutdown();
+
+	if (keepAlive) {
+		keepAlive->stop();
+		delete keepAlive;
+		keepAlive = nullptr;
+	}
+
+	/* Drop the event streams before the control service forgets its sinks, so
+	 * a socket is never left waiting on a callback that no longer exists. */
+	for (auto it = eventStreams.begin(); it != eventStreams.end(); ++it) {
+		WebMixControl::Unsubscribe(it.value());
+		if (it.key()) {
+			it.key()->disconnectFromHost();
+		}
+	}
+	eventStreams.clear();
+	WebMixControl::Stop();
 
 	if (!server) {
 		return;
@@ -307,6 +339,38 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 	const QString body = QString::fromUtf8(request.mid(request.indexOf("\r\n\r\n") + 4));
 	UNUSED_PARAMETER(body);
 
+	/* --- the native control channel ---------------------------------------- */
+	if (path.startsWith(QLatin1String("/api/obs/"))) {
+		if (method == "GET" || method == "HEAD") {
+			if (path == "/api/obs/events") {
+				OpenEventStream(socket, QueryValue(query, "intents"));
+				return;
+			}
+			if (path == "/api/obs/requests") {
+				QJsonObject payload;
+				payload["requests"] = QJsonArray::fromStringList(WebMixControl::RequestTypes());
+				SendJson(socket, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+				return;
+			}
+			SendError(socket, 404, "Unknown control endpoint");
+			return;
+		}
+		if (method != "POST") {
+			SendError(socket, 405, "Method not allowed");
+			return;
+		}
+		if (path == "/api/obs/request") {
+			HandleObsRequest(socket, request.mid(request.indexOf("\r\n\r\n") + 4));
+			return;
+		}
+		if (path == "/api/obs/batch") {
+			HandleObsBatch(socket, request.mid(request.indexOf("\r\n\r\n") + 4));
+			return;
+		}
+		SendError(socket, 404, "Unknown control endpoint");
+		return;
+	}
+
 	/* --- live preview frames ------------------------------------------------ */
 	if (path == "/api/preview.mjpg" || path == "/api/preview.jpg" || path == "/api/preview/multiview.mjpg" ||
 	    path == "/api/preview/multiview.jpg") {
@@ -366,8 +430,11 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		}
 
 		const int fps = qBound(1, QueryIntOr(query, "fps", 15), 60);
-		/* The stream owns the socket from here on. */
-		disconnect(socket, nullptr, this, nullptr);
+		/* The stream owns the socket from here on.  The request buffer was
+		 * connected as a lambda with the socket as its context, so the
+		 * signal itself has to be disconnected - matching on `this` would
+		 * leave the buffer consuming the stream's own bytes. */
+		disconnect(socket, &QTcpSocket::readyRead, nullptr, nullptr);
 		auto *stream = new WebMixPreview::Stream(socket, source, width, height, fps, quality, this,
 							 multiview ? WebMixPreview::Stream::Mode::Multiview
 								   : WebMixPreview::Stream::Mode::Source);
@@ -641,6 +708,16 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		status["web"] = true;
 		status["webRoot"] = webRoot;
 		status["version"] = QString::fromUtf8(obs_get_version_string());
+		/* The native control channel: the page talks to libobs directly,
+		 * with no obs-websocket and no second port. */
+		status["obsControl"] = true;
+		status["obsRequestEndpoint"] = QStringLiteral("/api/obs/request");
+		status["obsEventEndpoint"] = QStringLiteral("/api/obs/events");
+		status["obsRequestTypes"] = WebMixControl::RequestTypes().size();
+		status["obsEventStreams"] = eventStreams.size();
+		/* Preview frames delivered so far: the page samples this twice to
+		 * report the rate it is really getting, which it cannot see itself. */
+		status["previewFrames"] = static_cast<double>(WebMixPreview::FramesSent());
 		status["shutdownEndpoint"] = true;
 		status["propertySchema"] = true;
 		status["previewStream"] = true;
@@ -714,6 +791,187 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		return;
 	}
 	SendFile(socket, canonical);
+}
+
+/* ------------------------------------------------------- control channel -- */
+
+void WebMixServer::HandleObsRequest(QTcpSocket *socket, const QByteArray &body)
+{
+	const QJsonDocument document = QJsonDocument::fromJson(body);
+	if (!document.isObject()) {
+		SendError(socket, 400, "Expected a JSON object");
+		return;
+	}
+	const QJsonObject root = document.object();
+	const QString requestType = root.value(QStringLiteral("requestType")).toString();
+	if (requestType.isEmpty()) {
+		SendError(socket, 400, "Missing requestType");
+		return;
+	}
+
+	const WebMixControl::Response response =
+		WebMixControl::Request(requestType, root.value(QStringLiteral("requestData")).toObject());
+
+	QJsonObject status;
+	status["result"] = response.ok;
+	status["code"] = response.code;
+	if (!response.comment.isEmpty()) {
+		status["comment"] = response.comment;
+	}
+
+	QJsonObject result;
+	result["requestType"] = requestType;
+	result["requestStatus"] = status;
+	result["responseData"] = response.data;
+
+	/* A refused request is still an HTTP success: the outcome lives in
+	 * `requestStatus`, exactly as it did on the protocol the frontend was
+	 * written against, so the client needs no transport-specific error path. */
+	SendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+}
+
+void WebMixServer::HandleObsBatch(QTcpSocket *socket, const QByteArray &body)
+{
+	const QJsonDocument document = QJsonDocument::fromJson(body);
+	if (!document.isObject()) {
+		SendError(socket, 400, "Expected a JSON object");
+		return;
+	}
+	const QJsonObject root = document.object();
+	const QJsonArray requests = root.value(QStringLiteral("requests")).toArray();
+	if (requests.isEmpty()) {
+		SendError(socket, 400, "A batch needs at least one request");
+		return;
+	}
+	/* The frontend batches per-input audio reads; a runaway list would block
+	 * the main thread for the whole round trip. */
+	if (requests.size() > 512) {
+		SendError(socket, 413, "Batch too large");
+		return;
+	}
+
+	QJsonArray results;
+	for (const QJsonValue &value : requests) {
+		const QJsonObject request = value.toObject();
+		const QString requestType = request.value(QStringLiteral("requestType")).toString();
+
+		QJsonObject status;
+		QJsonObject responseData;
+		if (requestType.isEmpty()) {
+			status["result"] = false;
+			status["code"] = WebMixControl::Status::MissingRequestData;
+			status["comment"] = QStringLiteral("Missing requestType");
+		} else {
+			const WebMixControl::Response response = WebMixControl::Request(
+				requestType, request.value(QStringLiteral("requestData")).toObject());
+			status["result"] = response.ok;
+			status["code"] = response.code;
+			if (!response.comment.isEmpty()) {
+				status["comment"] = response.comment;
+			}
+			responseData = response.data;
+		}
+
+		QJsonObject entry;
+		entry["requestType"] = requestType;
+		entry["requestStatus"] = status;
+		entry["responseData"] = responseData;
+		results.append(entry);
+	}
+
+	QJsonObject payload;
+	payload["results"] = results;
+	SendJson(socket, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+}
+
+void WebMixServer::OpenEventStream(QTcpSocket *socket, const QString &intents)
+{
+	/* From here on the socket is an event stream, not a request: stop reading
+	 * it, or the next byte would be parsed as another request. */
+	disconnect(socket, &QTcpSocket::readyRead, nullptr, nullptr);
+
+	int subscribed = WebMixControl::Intent::All | WebMixControl::Intent::InputVolumeMeters |
+			 WebMixControl::Intent::InputActiveStateChanged | WebMixControl::Intent::InputShowStateChanged |
+			 WebMixControl::Intent::SceneItemTransformChanged;
+	if (!intents.isEmpty()) {
+		bool ok = false;
+		const int parsed = intents.toInt(&ok);
+		if (ok) {
+			subscribed = parsed;
+		}
+	}
+
+	QByteArray header;
+	header += "HTTP/1.1 200 OK\r\n";
+	header += "Content-Type: text/event-stream; charset=utf-8\r\n";
+	header += "Cache-Control: no-store\r\n";
+	header += "Connection: keep-alive\r\n";
+	/* Ask reverse proxies not to buffer: the whole point is live events. */
+	header += "X-Accel-Buffering: no\r\n\r\n";
+	socket->write(header);
+	socket->write(": webmix control stream\n\n");
+	socket->flush();
+
+	const quint64 token = WebMixControl::Subscribe(
+		[socket](const QString &eventType, const QJsonObject &eventData, int intent) {
+			QJsonObject frame;
+			frame["eventType"] = eventType;
+			frame["eventIntent"] = intent;
+			frame["eventData"] = eventData;
+			const QByteArray payload =
+				"data: " + QJsonDocument(frame).toJson(QJsonDocument::Compact) + "\n\n";
+
+			/* A slow reader must not turn meters into unbounded memory:
+			 * everything is time-sensitive, so drop the newest frame
+			 * rather than queueing megabytes of stale levels. */
+			if (socket->bytesToWrite() > 512 * 1024 &&
+			    (intent == WebMixControl::Intent::InputVolumeMeters ||
+			     intent == WebMixControl::Intent::SceneItemTransformChanged)) {
+				return;
+			}
+			socket->write(payload);
+		},
+		subscribed);
+
+	eventStreams.insert(socket, token);
+	blog(LOG_INFO, "[WebMIX] Event stream opened (%lld active)", (long long)eventStreams.size());
+
+	/* The connection outlives the request, so it needs its own teardown. */
+	connect(socket, &QTcpSocket::disconnected, this, [this, socket]() { CloseEventStream(socket); });
+}
+
+void WebMixServer::CloseEventStream(QTcpSocket *socket)
+{
+	const auto entry = eventStreams.find(socket);
+	if (entry == eventStreams.end()) {
+		return;
+	}
+	WebMixControl::Unsubscribe(entry.value());
+	eventStreams.erase(entry);
+	blog(LOG_INFO, "[WebMIX] Event stream closed (%lld still active)", (long long)eventStreams.size());
+}
+
+void WebMixServer::PingEventStreams()
+{
+	if (eventStreams.isEmpty()) {
+		return;
+	}
+	/* A comment line keeps intermediaries from closing an idle stream. */
+	const QByteArray ping = ": ping\n\n";
+	for (QTcpSocket *socket : eventStreams.keys()) {
+		if (!socket) {
+			continue;
+		}
+		/* A peer that vanished without closing (a killed browser, a suspended
+		 * machine) never emits disconnected, and the entry would sit here
+		 * forever. The keep-alive is the natural place to notice and drop it. */
+		if (socket->state() != QAbstractSocket::ConnectedState) {
+			CloseEventStream(socket);
+			socket->deleteLater();
+			continue;
+		}
+		socket->write(ping);
+	}
 }
 
 void WebMixServer::SendFile(QTcpSocket *socket, const QString &path, int status)

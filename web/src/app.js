@@ -7,6 +7,7 @@
  */
 import { Store, Topic, selectors } from './store.js';
 import { ObsClient } from './obs-client.js';
+import { ObsDirectClient } from './obs-direct.js';
 import { ObsApi } from './api.js';
 import { h, qs, clear, setText, setClass } from './dom.js';
 import { MenuBar } from './ui/menu.js';
@@ -156,19 +157,34 @@ function renderConnectScreen(connection, { status = '', kind = '' } = {}) {
 
 let connectScreenApi = null;
 
+/**
+ * Connect using the best transport this page has.
+ *
+ * When OBS serves the page it also runs the native control service, so the UI
+ * drives libobs directly over HTTP+SSE - no obs-websocket, no port, no
+ * password.  That is the normal case.  obs-websocket is still used when the
+ * page comes from somewhere else (the development server, another machine), so
+ * a remote or older setup keeps working.
+ *
+ * @returns {Promise<boolean>} whether the connection came up
+ */
 async function connect(connection) {
   const setStatus = connectScreenApi?.setStatus ?? (() => {});
   setStatus('Connecting...');
 
   if (client) client.disconnect();
 
-  client = new ObsClient({
-    host: connection.host,
-    port: connection.port,
-    password: connection.password ?? '',
-    autoReconnect: true,
-    eventSubscriptions: undefined,
-  });
+  if (connection.native) {
+    client = new ObsDirectClient({ base: connection.base ?? '' });
+  } else {
+    client = new ObsClient({
+      host: connection.host,
+      port: connection.port,
+      password: connection.password ?? '',
+      autoReconnect: true,
+      eventSubscriptions: undefined,
+    });
+  }
   api = new ObsApi(client, store);
   wireClient(connection);
 
@@ -176,16 +192,18 @@ async function connect(connection) {
     await client.connect();
   } catch (err) {
     setStatus(err.message, 'error');
-    return;
+    return false;
   }
   setStatus('Connected', 'ok');
+  return true;
 }
 
 function wireClient(connection) {
   client.on('status', (status) => {
     store.setConnection({ status });
     if (status === 'reconnecting' || status === 'connecting') {
-      ui?.statusbar.showMessage(`Reconnecting to ${connection.host}:${connection.port}...`, 'warning', 0);
+      const target = connection.native ? 'OBS' : `${connection.host}:${connection.port}`;
+      ui?.statusbar.showMessage(`Reconnecting to ${target}...`, 'warning', 0);
     }
   });
 
@@ -196,6 +214,7 @@ function wireClient(connection) {
   client.on('connected', async (info) => {
     store.setConnection({
       status: 'connected',
+      native: connection.native === true,
       url: client.url,
       obsWebSocketVersion: info.obsWebSocketVersion,
       rpcVersion: info.negotiatedRpcVersion,
@@ -1155,7 +1174,19 @@ function buildUi() {
     if (topics.has(Topic.Stats) || topics.has(Topic.Outputs) || topics.has(Topic.Video)) {
       statsPanel.update(state);
     }
-    if (topics.has(Topic.Scenes) || topics.has(Topic.Ui) || topics.has(Topic.Video)) preview.render();
+    /* SceneItems matters too: the selection frame follows a source's lock
+     * state and its transform, both of which arrive on that topic. */
+    if (
+      topics.has(Topic.Scenes) ||
+      topics.has(Topic.SceneItems) ||
+      topics.has(Topic.Ui) ||
+      topics.has(Topic.Video) ||
+      /* The streams die with the connection, so a reconnect has to reach the
+       * preview panel. */
+      topics.has(Topic.Connection)
+    ) {
+      preview.render();
+    }
     if (topics.has(Topic.Config)) menuBar.syncChecks?.();
   };
   store.subscribe(onStoreUpdate);
@@ -1188,6 +1219,19 @@ function buildUi() {
       await preview.init();
       preview.start();
       refreshAll();
+      /* Which backend the browser ended up with decides how smooth the preview
+       * is, and it is not something the user can guess - so say it once. */
+      statusbar.showMessage(`Preview: ${preview.backendLabel}`, 'info', 8000);
+      /* And a moment later, what the host is actually delivering - the number
+       * the user needs when the preview feels slow. */
+      preview
+        .measureDelivery()
+        .then((fps) => {
+          if (fps !== null) {
+            statusbar.showMessage(`Preview: ${preview.backendLabel} — ${fps} fps from OBS`, 'info', 8000);
+          }
+        })
+        .catch(() => { /* the label in the context menu still works */ });
     },
     refreshAll,
     dispose() {
@@ -1266,10 +1310,27 @@ async function boot() {
   const connection = savedConnection();
   connectScreenApi = renderConnectScreen(connection);
 
-  // Probe the host first: when OBS serves the UI itself, the obs-websocket
-  // connection details come from its own config and we can connect without
-  // asking the user anything.
+  // Probe the host first.  A page served by OBS itself can be driven directly
+  // through the native control service, so there is nothing to ask the user
+  // and nothing to enable; only the fallback path needs connection details.
   host = await detectHost();
+
+  if (host.obsControl) {
+    connectScreenApi = renderConnectScreen(connection, {
+      status: 'Served by OBS — connecting directly to the application',
+      kind: 'ok',
+    });
+    const native = { native: true, base: '', ...connection };
+    if (await connect(native)) {
+      return;
+    }
+    // The native channel was there a moment ago but refused to come up: leave
+    // the form on screen so obs-websocket can be used instead.
+    connectScreenApi.setStatus(
+      'The native control channel is unavailable. Connect over obs-websocket instead.',
+      'error'
+    );
+  }
 
   const serverConfig = await fetchServerConfig();
   if (serverConfig && serverConfig.port) {

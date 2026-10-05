@@ -19,6 +19,11 @@
 
 #include <QBuffer>
 #include <QStringList>
+
+#include <jpeglib.h>
+
+#include <csetjmp>
+#include <cstdlib>
 #include <QTcpSocket>
 #include <QTimer>
 
@@ -28,11 +33,15 @@
 #include <util/platform.h>
 
 #include <algorithm>
+#include <atomic>
 #include <vector>
 #include <cmath>
 #include <string.h>
 
 namespace WebMixPreview {
+
+/*! Every frame that reached a socket; see FramesSent(). */
+std::atomic<uint64_t> sentFrames{0};
 
 /* Tile colours for the multiview grid, packed for QImage::Format_RGBA8888
  * (byte order R, G, B, A in memory). */
@@ -52,6 +61,11 @@ namespace {
 int activeStreams = 0;
 
 } // namespace
+
+quint64 FramesSent()
+{
+	return sentFrames.load(std::memory_order_relaxed);
+}
 
 int ActiveStreams()
 {
@@ -266,19 +280,84 @@ QImage CaptureMultiview(const QStringList &requested, uint32_t width, uint32_t h
 	return ok ? image : QImage();
 }
 
+/* libjpeg reports errors by longjmp-ing out of the encoder; the default
+ * handler calls exit(), which would take OBS down with it. */
+struct JpegErrorHandler {
+	jpeg_error_mgr base;
+	jmp_buf escape;
+};
+
+void OnJpegError(j_common_ptr info)
+{
+	auto *handler = reinterpret_cast<JpegErrorHandler *>(info->err);
+	longjmp(handler->escape, 1);
+}
+
+/*! Encode an image as JPEG, directly with libjpeg.
+ *
+ * Qt's writer is used everywhere else, but not here: it enables Huffman
+ * optimisation, which costs about three times the encode time to save a few
+ * percent of size - and encode time is exactly what keeps a 60 fps preview
+ * from holding its frame rate at larger pane sizes. This way the options that
+ * matter are also explicit: no optimisation, and 4:4:4 colour above quality
+ * 90 (Qt's own threshold), which is what stops coloured text from smearing.
+ */
 QByteArray EncodeJpeg(const QImage &image, int quality)
 {
 	if (image.isNull()) {
 		return QByteArray();
 	}
 
-	QByteArray encoded;
-	QBuffer buffer(&encoded);
-	buffer.open(QBuffer::WriteOnly);
-	if (!image.save(&buffer, "JPEG", quality)) {
+	/* libjpeg has no alpha channel and the preview is opaque. */
+	const QImage rgb = image.format() == QImage::Format_RGB888 ? image
+								   : image.convertToFormat(QImage::Format_RGB888);
+	if (rgb.isNull() || rgb.width() <= 0 || rgb.height() <= 0) {
 		return QByteArray();
 	}
-	buffer.close();
+
+	jpeg_compress_struct compress = {};
+	JpegErrorHandler error = {};
+	unsigned char *out = nullptr;
+	unsigned long outSize = 0;
+
+	compress.err = jpeg_std_error(&error.base);
+	error.base.error_exit = OnJpegError;
+
+	/* Only plain C state lives between setjmp and longjmp, so escaping from a
+	 * libjpeg error does not skip a C++ destructor. */
+	if (setjmp(error.escape)) {
+		jpeg_destroy_compress(&compress);
+		free(out);
+		blog(LOG_WARNING, "[WebMIX] JPEG encoding failed");
+		return QByteArray();
+	}
+
+	jpeg_create_compress(&compress);
+	jpeg_mem_dest(&compress, &out, &outSize);
+	compress.image_width = static_cast<JDIMENSION>(rgb.width());
+	compress.image_height = static_cast<JDIMENSION>(rgb.height());
+	compress.input_components = 3;
+	compress.in_color_space = JCS_RGB;
+	jpeg_set_defaults(&compress);
+	compress.optimize_coding = FALSE;
+	if (quality >= 91) {
+		for (int i = 0; i < 3; i++) {
+			compress.comp_info[i].h_samp_factor = 1;
+			compress.comp_info[i].v_samp_factor = 1;
+		}
+	}
+	jpeg_set_quality(&compress, std::clamp(quality, 1, 100), TRUE);
+
+	jpeg_start_compress(&compress, TRUE);
+	while (compress.next_scanline < compress.image_height) {
+		JSAMPROW row = const_cast<JSAMPROW>(rgb.constScanLine(static_cast<int>(compress.next_scanline)));
+		jpeg_write_scanlines(&compress, &row, 1);
+	}
+	jpeg_finish_compress(&compress);
+	jpeg_destroy_compress(&compress);
+
+	const QByteArray encoded(reinterpret_cast<const char *>(out), static_cast<int>(outSize));
+	free(out);
 	return encoded;
 }
 
@@ -344,6 +423,9 @@ void Stream::Tick()
 	}
 
 	const QByteArray jpeg = EncodeJpeg(frame, quality);
+	if (!jpeg.isEmpty()) {
+		sentFrames.fetch_add(1, std::memory_order_relaxed);
+	}
 	if (jpeg.isEmpty()) {
 		return;
 	}

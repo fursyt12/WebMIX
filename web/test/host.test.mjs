@@ -32,6 +32,7 @@ test('detectHost recognises the embedded OBS server', async (t) => {
       res.end(
         JSON.stringify({
           webmix: true,
+          obsControl: true,
           shutdownEndpoint: true,
           previewStream: true,
           propertySchema: true,
@@ -53,6 +54,8 @@ test('detectHost recognises the embedded OBS server', async (t) => {
 
   const info = await detectHost(host.base);
   assert.equal(info.embedded, true);
+  // The native control channel is what makes obs-websocket unnecessary.
+  assert.equal(info.obsControl, true);
   assert.equal(info.shutdown, true);
   assert.equal(info.version, '33.0.0');
   assert.equal(info.webRoot, '/opt/obs/web');
@@ -100,6 +103,7 @@ test('detectHost and requestShutdown fail safe when nothing is listening', async
   const base = 'http://127.0.0.1:1/';
   assert.deepEqual(await detectHost(base), {
     embedded: false,
+    obsControl: false,
     shutdown: false,
     previewStream: false,
     propertySchema: false,

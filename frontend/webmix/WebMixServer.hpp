@@ -18,18 +18,29 @@
 #pragma once
 
 #include <QByteArray>
+#include <QHash>
 #include <QObject>
 #include <QString>
 
 class QTcpServer;
 class QTcpSocket;
+class QTimer;
 
 /* WebMIX: serves the browser frontend from inside OBS.
  *
- * In `--web` mode the Qt window is never shown and this server is the only
- * interface to the application: it delivers the static web frontend, exposes
- * the obs-websocket connection details to it, and provides the few control
- * endpoints the websocket protocol does not cover (currently shutdown).
+ * In web mode - what a plain launch does; `--no-web` opts out - the Qt window
+ * is never shown and this server is the only interface to the application.  It
+ * delivers the static web frontend and it is the transport for the native
+ * control service (WebMixControl):
+ *
+ *   POST /api/obs/request   one request  -> requestStatus + responseData
+ *   POST /api/obs/batch     many requests in one round trip
+ *   GET  /api/obs/requests  the request types this build implements
+ *   GET  /api/obs/events    Server-Sent Events: every OBS event, live
+ *
+ * That channel replaces obs-websocket for the UI.  The remaining `/api/*`
+ * endpoints cover the handful of operations the old protocol had no request
+ * for at all, and are kept because they are the natural home for them.
  *
  * Deliberately built on QTcpServer rather than QtHttpServer so no extra Qt
  * module is required. */
@@ -58,6 +69,13 @@ private slots:
 private:
 	void HandleRequest(QTcpSocket *socket, const QByteArray &request);
 
+	/* ---- the native control channel ---------------------------------- */
+	void HandleObsRequest(QTcpSocket *socket, const QByteArray &body);
+	void HandleObsBatch(QTcpSocket *socket, const QByteArray &body);
+	void OpenEventStream(QTcpSocket *socket, const QString &intents);
+	void CloseEventStream(QTcpSocket *socket);
+	void PingEventStreams();
+
 	void SendFile(QTcpSocket *socket, const QString &path, int status = 200);
 	void SendJson(QTcpSocket *socket, const QByteArray &json, int status = 200);
 	void SendText(QTcpSocket *socket, const QString &text, int status = 200,
@@ -67,4 +85,8 @@ private:
 	QTcpServer *server = nullptr;
 	QString webRoot;
 	QString url;
+
+	/*! Live event streams, and the WebMixControl subscription each one owns. */
+	QHash<QTcpSocket *, quint64> eventStreams;
+	QTimer *keepAlive = nullptr;
 };

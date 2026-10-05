@@ -86,6 +86,7 @@ export class ObsApi {
           inputUuid: input.inputUuid,
           inputKind: input.inputKind,
           unversionedInputKind: input.unversionedInputKind,
+          inputKindCaps: input.inputKindCaps ?? null,
         };
         state.audio[input.inputName] = {
           volumeMul: 1,
@@ -372,6 +373,33 @@ export class ObsApi {
     });
     await this.refreshInputs();
     if (sceneName) await this.refreshSceneItems(sceneName);
+
+    // Auto-scale certain source types that default to very small sizes
+    if (data.sceneItemId && sceneName) {
+      const needsAutoScale = /screen_capture|monitor_capture|display_capture|window_capture|game_capture/i.test(inputKind);
+      if (needsAutoScale) {
+        try {
+          // Get canvas dimensions
+          const video = this.store.state.video ?? {};
+          const canvasWidth = video.baseWidth ?? 1920;
+          const canvasHeight = video.baseHeight ?? 1080;
+
+          // Set transform to fit the canvas
+          await this.setSceneItemTransform(sceneName, data.sceneItemId, {
+            boundsType: 'OBS_BOUNDS_SCALE_INNER',
+            boundsAlignment: 5, // center
+            boundsWidth: canvasWidth,
+            boundsHeight: canvasHeight,
+            positionX: canvasWidth / 2,
+            positionY: canvasHeight / 2,
+            alignment: 0, // center
+          });
+        } catch (err) {
+          console.warn('[webmix] auto-scale failed:', err);
+        }
+      }
+    }
+
     return data.sceneItemId;
   }
 
@@ -397,6 +425,7 @@ export class ObsApi {
           inputUuid: input.inputUuid,
           inputKind: input.inputKind,
           unversionedInputKind: input.unversionedInputKind,
+          inputKindCaps: input.inputKindCaps ?? this.store.state.inputs[input.inputName]?.inputKindCaps ?? null,
         };
       }
       for (const name of Object.keys(this.store.state.inputs)) {
