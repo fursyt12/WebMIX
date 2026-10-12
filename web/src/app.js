@@ -9,7 +9,8 @@ import { Store, Topic, selectors } from './store.js';
 import { ObsClient } from './obs-client.js';
 import { ObsDirectClient } from './obs-direct.js';
 import { ObsApi } from './api.js';
-import { h, qs, clear, setText, setClass } from './dom.js';
+import { h, qs, clear, setText, setClass, setTranslator } from './dom.js';
+import { loadLocale, tr, t, currentLocale } from './i18n.js';
 import { MenuBar } from './ui/menu.js';
 import { Dock } from './ui/dock.js';
 import { ScenesPanel } from './ui/scenes.js';
@@ -269,6 +270,7 @@ function buildUi() {
     canvas: qs('#preview-canvas'),
     labels: qs('#preview-labels'),
     placeholder: qs('#preview-placeholder'),
+    controls: qs('#preview-controls'),
     host,
     onContextAction: (action, payload) => handlePreviewAction(action, payload),
     // Selecting in the preview selects in the docks, like OBS does.
@@ -775,15 +777,25 @@ function buildUi() {
       case 'remuxRecordings':
         await openRemuxDialog({ onStatus: statusMessage });
         break;
+      /* Help menu: the same pages the desktop opens in the browser. */
+      case 'helpPortal':
+        window.open('https://obsproject.com/help', '_blank', 'noopener');
+        break;
+      case 'website':
+        window.open('https://obsproject.com', '_blank', 'noopener');
+        break;
+      case 'discord':
+        window.open('https://obsproject.com/discord', '_blank', 'noopener');
+        break;
+      case 'releaseNotes':
+        window.open('https://github.com/obsproject/obs-studio/releases', '_blank', 'noopener');
+        break;
+
       case 'openPluginManager':
       case 'openScripts':
       case 'autoConfigure':
-      case 'helpPortal':
-      case 'website':
-      case 'discord':
       case 'uploadCurrentLog':
       case 'uploadLastLog':
-      case 'releaseNotes':
       case 'restartSafe':
       case 'showMissingFiles':
       case 'remigrateSceneCollection':
@@ -798,10 +810,17 @@ function buildUi() {
         await createNamed('New Profile', 'Profile name', (name) => api.createProfile(name));
         break;
       case 'duplicateProfile':
-        statusMessage('Duplicating profiles is not exposed by obs-websocket', 'warning');
+        await createNamed(t('AddProfile.Title'), t('AddProfile.Text'), (name) =>
+          api.request('DuplicateProfile', { profileName: name })
+        );
         break;
       case 'renameProfile':
-        statusMessage('Renaming profiles is not exposed by obs-websocket', 'warning');
+        await createNamed(
+          t('RenameProfile.Title'),
+          t('AddProfile.Text'),
+          (name) => api.request('RenameProfile', { profileName: name }),
+          store2.state.profiles.current ?? ''
+        );
         break;
       case 'removeProfile':
         if (await confirm({ title: 'Remove Profile', text: `Remove profile "${store2.state.profiles.current}"?`, okLabel: 'Remove', danger: true })) {
@@ -812,13 +831,29 @@ function buildUi() {
         await createNamed('New Scene Collection', 'Scene collection name', (name) => api.createSceneCollection(name));
         break;
       case 'duplicateSceneCollection':
-        statusMessage('Duplicating scene collections is not exposed by obs-websocket', 'warning');
+        await createNamed(t('Basic.Main.AddSceneCollection.Title'), t('Basic.Main.AddSceneCollection.Text'), (name) =>
+          api.request('DuplicateSceneCollection', { sceneCollectionName: name })
+        );
         break;
       case 'renameSceneCollection':
-        statusMessage('Renaming scene collections is not exposed by obs-websocket', 'warning');
+        await createNamed(
+          t('Basic.Main.RenameSceneCollection.Title'),
+          t('Basic.Main.AddSceneCollection.Text'),
+          (name) => api.request('RenameSceneCollection', { sceneCollectionName: name }),
+          store2.state.sceneCollections.current ?? ''
+        );
         break;
       case 'removeSceneCollection':
-        statusMessage('Removing scene collections is not exposed by obs-websocket', 'warning');
+        if (
+          await confirm({
+            title: t('ConfirmRemove.Title'),
+            text: t('ConfirmRemove.Text', store2.state.sceneCollections.current ?? ''),
+            okLabel: t('Remove'),
+            danger: true,
+          })
+        ) {
+          await api.request('RemoveSceneCollection').catch((err) => statusMessage(err.message, 'error'));
+        }
         break;
 
       case 'resetUI':
@@ -915,15 +950,15 @@ function buildUi() {
     }
   }
 
-  async function createNamed(title, label, fn) {
-    const name = await promptName(title, label);
+  async function createNamed(title, label, fn, initial = '') {
+    const name = await promptName(title, label, initial);
     if (!name) return;
     await fn(name).catch((err) => statusMessage(err.message, 'error'));
   }
 
-  function promptName(title, label) {
+  function promptName(title, label, initial = '') {
     return new Promise((resolve) => {
-      const input = h('input.obs-input', { type: 'text', style: { width: '100%' } });
+      const input = h('input.obs-input', { type: 'text', value: initial, raw: true, style: { width: '100%' } });
       const dialog = openDialog({
         title,
         width: 420,
@@ -934,7 +969,15 @@ function buildUi() {
         ]),
         onClose: () => resolve(null),
       });
-      setTimeout(() => input.focus(), 0);
+      input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        resolve(input.value.trim());
+        dialog.close();
+      });
+      setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 0);
     });
   }
 
@@ -1114,6 +1157,8 @@ function buildUi() {
       const [stream, record, replay, vcam] = results.map((r) => (r.requestStatus?.result ? r.responseData : {}));
       store.batch(() => {
         const outputs = store.state.outputs;
+        outputs.replayBuffer.available = !!results[2].requestStatus?.result;
+        outputs.virtualCam.available = !!results[3].requestStatus?.result;
         outputs.streaming.active = !!stream.outputActive;
         outputs.streaming.timecode = stream.outputTimecode ?? '00:00:00.000';
         outputs.streaming.bytes = stream.outputBytes ?? 0;
@@ -1314,6 +1359,13 @@ async function boot() {
   // through the native control service, so there is nothing to ask the user
   // and nothing to enable; only the fallback path needs connection details.
   host = await detectHost();
+
+  /* Speak OBS's language before anything is drawn: the host serves its own
+   * locale files, so the page uses the very strings the desktop window does. */
+  if (host.embedded && (await loadLocale())) {
+    setTranslator(tr);
+    document.documentElement.lang = currentLocale().split('-')[0];
+  }
 
   if (host.obsControl) {
     connectScreenApi = renderConnectScreen(connection, {

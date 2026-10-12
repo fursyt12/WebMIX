@@ -236,7 +236,9 @@ export function reduceEvent(state, eventType, data = {}) {
       break;
     }
     case 'CurrentPreviewSceneChanged': {
-      state.currentPreviewScene = data.sceneName ?? null;
+      /* An empty name is "no preview scene", not a scene called "": the pane
+       * selectors fall back to the program scene only for null. */
+      state.currentPreviewScene = data.sceneName || null;
       break;
     }
 

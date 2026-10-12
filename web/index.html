@@ -12,9 +12,6 @@
     <div id="app" class="obs-root" hidden>
       <nav id="menubar" class="obs-menubar" role="menubar" aria-label="Main menu"></nav>
 
-      <!-- Source toolbar (View > Source Toolbar) -->
-      <div id="source-toolbar" class="obs-toolbar" role="toolbar"></div>
-
       <!-- Dock workspace: left column (Scenes/Sources) + preview + bottom row -->
       <div id="workspace" class="obs-workspace">
         <div id="workspace-top" class="obs-workspace-top">
@@ -36,7 +33,12 @@
                 <img id="preview-image" alt="" draggable="false" />
                 <div id="preview-placeholder" class="obs-preview-placeholder"></div>
               </div>
+              <!-- Zoom / scaling controls, under the preview like the desktop window -->
+              <div id="preview-controls" class="obs-preview-controls"></div>
             </div>
+
+            <!-- Source toolbar (View > Source Toolbar): between the preview and the docks -->
+            <div id="source-toolbar" class="obs-toolbar obs-context-bar" role="toolbar"></div>
           </div>
 
           <!-- Custom Browser Docks (Docks > Custom Browser Docks...) -->
@@ -47,11 +49,11 @@
         <div id="splitter-main-h" class="obs-splitter obs-splitter-h" role="separator" aria-orientation="horizontal" tabindex="0"></div>
 
         <div id="dock-bottom" class="obs-dock-row">
+          <div class="obs-dock-slot" data-dock="mixer"></div>
+          <div class="obs-splitter obs-splitter-v" role="separator" aria-orientation="vertical" tabindex="0"></div>
           <div class="obs-dock-slot" data-dock="transitions"></div>
           <div class="obs-splitter obs-splitter-v" role="separator" aria-orientation="vertical" tabindex="0"></div>
           <div class="obs-dock-slot" data-dock="controls"></div>
-          <div class="obs-splitter obs-splitter-v" role="separator" aria-orientation="vertical" tabindex="0"></div>
-          <div class="obs-dock-slot" data-dock="mixer"></div>
           <div class="obs-splitter obs-splitter-v" role="separator" aria-orientation="vertical" tabindex="0"></div>
           <div class="obs-dock-slot" data-dock="stats" hidden></div>
         </div>

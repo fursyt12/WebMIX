@@ -46,8 +46,110 @@ const paths = {
   properties: '<rect x="2.5" y="3" width="11" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 6h6M5 8.5h6M5 11h3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
 };
 
-/** Return an <svg> element for `name`, sized `size` px (default 16). */
+/* The original artwork (frontend/data/themes/Dark, copied to assets/icons).
+ * Whatever has a native counterpart is drawn with it, so a button here is the
+ * same picture as the button in the desktop window; the inline glyphs above
+ * remain for the few things the desktop has no icon for. */
+const native = {
+  plus: 'plus',
+  minus: 'minus',
+  trash: 'trash',
+  up: 'up',
+  down: 'down',
+  left: 'left',
+  right: 'right',
+  filter: 'filter',
+  gear: 'settings/general',
+  cogs: 'cogs',
+  dots: 'dots',
+  dotsV: 'dots-vert',
+  eye: 'visible',
+  eyeOff: 'invisible',
+  lock: 'locked',
+  unlock: 'unlocked',
+  refresh: 'refresh',
+  revert: 'revert',
+  save: 'save',
+  close: 'close',
+  interact: 'interact',
+  popout: 'popout',
+  collapse: 'collapse',
+  expand: 'expand',
+  layoutV: 'layout-vertical',
+  layoutH: 'layout-horizontal',
+  pause: 'media-pause',
+  speaker: 'settings/audio',
+  mute: 'mute',
+  unassigned: 'unassigned',
+  headphones: 'headphones',
+  headphonesOff: 'headphones-off',
+  alert: 'alert',
+  streamInactive: 'streaming-inactive',
+  streamActive: 'streaming-active',
+  recordInactive: 'recording-inactive',
+  recordActive: 'recording-active',
+  recordPause: 'recording-pause',
+  recordPauseInactive: 'recording-pause-inactive',
+  networkInactive: 'network-inactive',
+  networkDisconnected: 'network-disconnected',
+  networkExcellent: 'network-excellent',
+  networkGood: 'network-good',
+  networkMediocre: 'network-mediocre',
+  networkBad: 'network-bad',
+  mediaPlay: 'media/media_play',
+  mediaPause: 'media/media_pause',
+  mediaStop: 'media/media_stop',
+  mediaRestart: 'media/media_restart',
+  mediaNext: 'media/media_next',
+  mediaPrevious: 'media/media_previous',
+};
+
+/* Source list icons, by the icon type OBS reports for a source kind
+ * (obs_icon_type) - the same table as OBSBasic's qproperty-*Icon set. */
+const sourceIcons = {
+  image: 'sources/image',
+  color: 'sources/brush',
+  slideshow: 'sources/slideshow',
+  audioInput: 'sources/microphone',
+  audioOutput: 'settings/audio',
+  desktopCapture: 'settings/video',
+  windowCapture: 'sources/window',
+  gameCapture: 'sources/gamepad',
+  camera: 'sources/camera',
+  text: 'sources/text',
+  media: 'sources/media',
+  browser: 'sources/globe',
+  processAudioOutput: 'sources/windowaudio',
+  group: 'sources/group',
+  scene: 'sources/scene',
+  default: 'sources/default',
+};
+
+function image(file, size) {
+  const img = document.createElement('img');
+  img.src = `assets/icons/${file}.svg`;
+  img.width = size;
+  img.height = size;
+  img.alt = '';
+  img.draggable = false;
+  img.setAttribute('aria-hidden', 'true');
+  img.classList.add('obs-icon');
+  return img;
+}
+
+/** The list icon for a source, from OBS's icon type name. */
+export function sourceIcon(type, size = 16) {
+  return image(sourceIcons[type] ?? sourceIcons.default, size);
+}
+
+/** A Settings page icon (general, stream, output, audio, video, ...). */
+export function settingsIcon(page, size = 16) {
+  return image(`settings/${page}`, size);
+}
+
+/** Return an icon element for `name`, sized `size` px (default 16). */
 export function icon(name, size = 16) {
+  if (native[name]) return image(native[name], size);
   const body = paths[name] ?? paths.info;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 16 16');

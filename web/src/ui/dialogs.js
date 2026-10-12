@@ -215,7 +215,7 @@ export async function openPropertiesDialog({ api, store, sourceName, onStatus })
           label: 'Defaults',
           action: async () => {
             try {
-              const { defaultInputSettings } = await api.getInputDefaultSettings(schema.kind ?? '');
+              const defaultInputSettings = await api.getInputDefaultSettings(schema.kind ?? '');
               await api.setInputSettings(sourceName, defaultInputSettings, true);
               const fresh = await fetchSourceProperties(sourceName);
               if (fresh) {
@@ -248,7 +248,7 @@ export async function openPropertiesDialog({ api, store, sourceName, onStatus })
   /* Fallback (bridge unavailable, e.g. UI served by a plain static server):
    * obs-websocket only exposes values, so show them keyed by property name. */
   try {
-    const [{ inputSettings, inputKind }, { defaultInputSettings }] = await Promise.all([
+    const [{ inputSettings, inputKind }, defaultInputSettings] = await Promise.all([
       api.getInputSettings(sourceName),
       api.getInputDefaultSettings(store.state.inputs[sourceName]?.inputKind ?? ''),
     ]);
@@ -375,7 +375,7 @@ export async function openFiltersDialog({ api, store, sourceName, onStatus }) {
             },
           },
         }),
-        h('span.obs-list-label', { text: filter.filterName }),
+        h('span.obs-list-label', { text: filter.filterName, raw: true }),
       ]);
       row.addEventListener('click', (event) => {
         if (event.target.type === 'checkbox') return;
@@ -810,7 +810,7 @@ export async function openAdvancedAudioDialog({ api, store, onStatus, onChanged 
       const audio = store.state.audio[input.inputName] ?? {};
       const row = h('tr', { dataset: { inputName: input.inputName } });
 
-      row.appendChild(h('td.obs-adv-name', { text: input.inputName }));
+      row.appendChild(h('td.obs-adv-name', { text: input.inputName, raw: true }));
 
       const volume = h('input.obs-input.obs-adv-number', {
         type: 'number',
@@ -906,10 +906,12 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
     for (const tab of tabs) {
       const button = h('button.obs-tab', {
         type: 'button',
+        role: 'tab',
         text: tab,
         on: { click: () => { active = tab; render(); } },
       });
-      if (tab === active) button.classList.add('is-active');
+      /* The theme styles the selected tab through aria-selected. */
+      button.setAttribute('aria-selected', String(tab === active));
       tabStrip.appendChild(button);
     }
   };

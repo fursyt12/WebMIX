@@ -11,6 +11,7 @@
  */
 import { h, reconcile, setText, setClass } from '../dom.js';
 import { iconButton } from './icons.js';
+import { spinBox } from './widgets.js';
 import { showContextMenu, prompt, confirm, openDialog, dialogButtons } from './dialog.js';
 import { Topic } from '../store.js';
 import { addTransition, renameTransition, removeTransition } from '../bridge.js';
@@ -33,33 +34,30 @@ export class TransitionsPanel {
     });
 
     this.durationLabel = h('label.obs-label', { text: 'Duration' });
-    this.duration = h('input.obs-spin', {
-      type: 'number',
-      min: '50',
-      max: '20000',
-      step: '50',
-      value: '300',
-      'aria-label': 'Duration',
-      on: {
-        change: () => {
-          const value = Number(this.duration.value);
-          if (Number.isFinite(value)) {
-            this.api.setTransitionDuration(value).catch((err) => this.onStatus?.(err.message, 'error'));
-          }
-        },
-      },
+    this.duration = spinBox({
+      value: 300,
+      min: 50,
+      max: 20000,
+      step: 50,
+      suffix: ' ms',
+      label: 'Duration',
+      onChange: (value) => this.api.setTransitionDuration(value).catch((err) => this.onStatus?.(err.message, 'error')),
     });
+    /* The desktop spin box shows its unit inside the field ("300 ms"). */
     this.durationRow = h('div.obs-field-row.obs-transition-duration', {}, [
       this.durationLabel,
-      this.duration,
-      h('span.obs-muted', { text: 'ms' }),
+      this.duration.el,
     ]);
 
     this.buttons = h('div.obs-transition-buttons', {}, [
       h('div.obs-toolbar-spacer'),
-      iconButton('plus', { title: 'Add Configurable Transition', onClick: () => this.addTransition() }),
-      iconButton('minus', { title: 'Remove Transition', onClick: () => this.removeTransition() }),
-      iconButton('gear', { title: 'Transition Properties', onClick: (event) => this.openPropsMenu(event) }),
+      iconButton('plus', {
+        title: 'Add Configurable Transition',
+        className: 'obs-transition-add',
+        onClick: () => this.addTransition(),
+      }),
+      iconButton('trash', { title: 'Remove Configurable Transition', onClick: () => this.removeTransition() }),
+      iconButton('dotsV', { title: 'Transition Properties', onClick: (event) => this.openPropsMenu(event) }),
     ]);
 
     // Studio Mode extras.
@@ -256,9 +254,9 @@ export class TransitionsPanel {
       this.combo,
       state.transitions,
       (t) => t.transitionName,
-      (t) => h('option', { value: t.transitionName, text: t.transitionName }),
+      (t) => h('option', { value: t.transitionName, text: t.transitionName, raw: true }),
       (node, t) => {
-        setText(node, t.transitionName);
+        setText(node, t.transitionName, true);
         node.value = t.transitionName;
       }
     );
@@ -266,12 +264,14 @@ export class TransitionsPanel {
 
     const fixed = state.currentTransition.transitionFixed === true;
     this.durationRow.hidden = fixed;
-    if (!fixed && document.activeElement !== this.duration) {
-      this.duration.value = String(state.currentTransition.transitionDuration ?? 300);
+    if (!fixed && !this.duration.focused) {
+      this.duration.value = state.currentTransition.transitionDuration ?? 300;
     }
 
     setClass(this.el, 'is-studio', state.studioMode);
-    this.studioBox.hidden = !state.studioMode;
+    /* Transition and the T-bar live between the two panes in Studio Mode,
+     * as on the desktop, not in this dock. */
+    this.studioBox.hidden = true;
     setClass(this.transitionButton, 'is-busy', state.transitionActive);
   }
 }

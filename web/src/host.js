@@ -42,6 +42,9 @@ export async function detectHost(base = '') {
       // the property schema and remux recordings; without these flags the UI
       // stays on the obs-websocket-only code paths.
       previewStream: data.previewStream === true,
+      // The stream endpoint can serve the program output itself
+      // (`view=program`), rather than a scene rendered again by name.
+      previewProgram: data.previewProgram === true,
       propertySchema: data.propertySchema === true,
       remux: data.remux === true,
       version: data.version,

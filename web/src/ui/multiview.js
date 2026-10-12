@@ -41,8 +41,11 @@ export async function openMultiview({ store, onStatus }) {
       status,
       closeButton,
     ]),
-    h('div.obs-multiview-body', {}, [frame, labels]),
+    h('div.obs-multiview-body', {}, [frame]),
   ]);
+  /* The labels live inside the frame: they are positioned in percentages of
+   * the grid, so they have to share its box. */
+  frame.appendChild(labels);
   document.body.appendChild(overlay);
 
   let closed = false;
@@ -50,6 +53,7 @@ export async function openMultiview({ store, onStatus }) {
   let media = null;
   let abort = null;
   let pending = null;
+  let streamCount = 0;
 
   const sceneNames = () => store.state.scenes.map((scene) => scene.sceneName);
 
@@ -65,6 +69,7 @@ export async function openMultiview({ store, onStatus }) {
       const row = Math.floor(index / columns);
       const cell = h('div.obs-multiview-label', {
         text: name,
+        raw: true,
         style: {
           left: `${(column * 100) / columns}%`,
           top: `${(row * 100) / rows}%`,
@@ -78,8 +83,29 @@ export async function openMultiview({ store, onStatus }) {
       labels.appendChild(cell);
     });
 
-    frame.style.aspectRatio = `${columns} / ${rows}`;
-    void rows;
+    fitFrame();
+  };
+
+  /*! Width over height of the whole grid: tiles have the canvas's shape. */
+  const gridAspect = () => {
+    const { columns, rows } = gridLayout(sceneNames().length);
+    const video = store.state.video ?? {};
+    const tile = (video.baseWidth || 1920) / (video.baseHeight || 1080);
+    return (columns * tile) / rows;
+  };
+
+  /*! Give the frame the largest size of that shape the overlay has room for. */
+  const fitFrame = () => {
+    const body = frame.parentElement;
+    if (!body) return;
+    const style = getComputedStyle(body);
+    const roomWidth = body.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const roomHeight = body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    if (roomWidth <= 0 || roomHeight <= 0) return;
+    const aspect = gridAspect();
+    const width = Math.min(roomWidth, roomHeight * aspect);
+    frame.style.width = `${Math.floor(width)}px`;
+    frame.style.height = `${Math.floor(width / aspect)}px`;
   };
 
   /** Start the multiview stream (size chosen for the overlay's pixel budget). */
@@ -90,9 +116,12 @@ export async function openMultiview({ store, onStatus }) {
       return;
     }
 
-    const { columns, rows } = gridLayout(scenes.length);
-    const width = Math.min(1920, 320 * columns);
-    const height = Math.round((width * rows) / columns);
+    const { columns } = gridLayout(scenes.length);
+    /* Enough for the screen it is shown on, in the grid's own shape - a
+     * square picture squeezed 16:9 tiles into letterboxes. */
+    const width = Math.min(1920, Math.max(480 * columns, Math.ceil(frame.clientWidth / 160) * 160));
+    const height = Math.round(width / gridAspect());
+    streamCount = scenes.length;
     const url =
       `api/preview/multiview.mjpg?width=${width}&height=${height}` +
       `&fps=${STREAM_FPS}&quality=80`;
@@ -100,8 +129,7 @@ export async function openMultiview({ store, onStatus }) {
     /* WebGPU renders into a canvas; without it the <img> below decodes the
      * multipart stream natively. */
     const canvas = h('canvas.obs-multiview-canvas');
-    clear(frame);
-    frame.appendChild(canvas);
+    frame.replaceChildren(canvas, labels);
     renderer = await WebGpuPreview.create(canvas);
     if (renderer) {
       abort = new AbortController();
@@ -134,8 +162,7 @@ export async function openMultiview({ store, onStatus }) {
 
     /* No WebGPU: let the browser decode the multipart stream directly. */
     const img = h('img.obs-multiview-image', { src: url, alt: 'Multiview' });
-    clear(frame);
-    frame.appendChild(img);
+    frame.replaceChildren(img, labels);
     status.textContent = `${width}x${height}`;
   };
 
@@ -146,6 +173,7 @@ export async function openMultiview({ store, onStatus }) {
     media?.close?.();
     renderer?.destroy?.();
     unsubscribe?.();
+    window.removeEventListener('resize', fitFrame);
     document.removeEventListener('keydown', onKey, true);
     overlay.remove();
   };
@@ -160,7 +188,18 @@ export async function openMultiview({ store, onStatus }) {
   closeButton.addEventListener('click', close);
   document.addEventListener('keydown', onKey, true);
 
-  const unsubscribe = store.subscribe(() => renderLabels());
+  /* The picture's shape follows the number of scenes; when that changes the
+   * stream has to be reopened at the new size, or the old grid is stretched
+   * under the new labels. */
+  const unsubscribe = store.subscribe(() => {
+    renderLabels();
+    if (closed || sceneNames().length === streamCount) return;
+    abort?.abort();
+    renderer?.destroy?.();
+    renderer = null;
+    startStream();
+  });
+  window.addEventListener('resize', fitFrame);
 
   renderLabels();
   await startStream();

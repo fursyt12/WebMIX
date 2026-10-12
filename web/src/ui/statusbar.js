@@ -9,6 +9,7 @@
 import { h, setText, setClass } from '../dom.js';
 import { parseTimecode } from '../dom.js';
 import { Topic } from '../store.js';
+import { icon } from './icons.js';
 
 const formatClock = (timecode) => {
   const ms = parseTimecode(timecode);
@@ -35,12 +36,17 @@ export class StatusBar {
     this.message = h('span.obs-status-item.obs-status-message');
     this.delay = h('span.obs-status-item.obs-status-delay', { hidden: true });
     this.dropped = h('span.obs-status-item.obs-status-dropped', { hidden: true });
-    this.network = h('span.obs-status-item.obs-status-network', { hidden: true });
+    /* The desktop status bar draws its states with icons (network strength,
+     * streaming, recording), always present and greyed out while idle. */
+    this.network = h('span.obs-status-item.obs-status-network');
     this.kbps = h('span.obs-status-item.obs-status-kbps', { text: '0 kbps', hidden: true });
     this.streamIcon = h('span.obs-status-item.obs-status-icon.obs-status-stream');
     this.streamTime = h('span.obs-status-item.obs-status-time', { text: '00:00:00' });
     this.recordIcon = h('span.obs-status-item.obs-status-icon.obs-status-record');
     this.recordTime = h('span.obs-status-item.obs-status-time', { text: '00:00:00' });
+    this.#setIcon(this.network, 'networkInactive');
+    this.#setIcon(this.streamIcon, 'streamInactive');
+    this.#setIcon(this.recordIcon, 'recordInactive');
     this.cpu = h('span.obs-status-item.obs-status-cpu', { text: 'CPU: 0.0%' });
     this.fps = h('span.obs-status-item.obs-status-fps', { text: '0.00 / 0.00 FPS' });
 
@@ -59,6 +65,13 @@ export class StatusBar {
 
     this.root.appendChild(this.el);
     this.root.classList.add('obs-statusbar');
+  }
+
+  /*! Swap an indicator's picture, only when it actually changes. */
+  #setIcon(holder, name) {
+    if (holder.dataset.icon === name) return;
+    holder.dataset.icon = name;
+    holder.replaceChildren(icon(name, 16));
   }
 
   /** Transient status message (QStatusBar::showMessage). */
@@ -80,27 +93,28 @@ export class StatusBar {
     this.streamTime.textContent = formatClock(streaming.timecode);
     setClass(this.streamTime, 'is-disabled', !streaming.active);
     setClass(this.streamIcon, 'is-active', streaming.active);
-    this.streamIcon.title = streaming.active ? 'Streaming' : 'Not streaming';
-    this.streamIcon.textContent = streaming.active ? '\u25cf' : '\u25cb';
+    this.#setIcon(this.streamIcon, streaming.active ? 'streamActive' : 'streamInactive');
 
     const paused = recording.paused;
     this.recordTime.textContent = `${formatClock(recording.timecode)}${paused ? ' (PAUSED)' : ''}`;
     setClass(this.recordTime, 'is-disabled', !recording.active);
     setClass(this.recordIcon, 'is-active', recording.active);
     setClass(this.recordIcon, 'is-paused', paused);
-    this.recordIcon.title = recording.active ? (paused ? 'Recording paused' : 'Recording') : 'Not recording';
-    this.recordIcon.textContent = recording.active ? '\u25cf' : '\u25cb';
+    this.#setIcon(this.recordIcon, recording.active ? (paused ? 'recordPause' : 'recordActive') : 'recordInactive');
 
     // kbps and network only while streaming, like the desktop status bar.
     this.kbps.hidden = !streaming.active;
-    this.network.hidden = !streaming.active;
+    const strength = { excellent: 'networkExcellent', good: 'networkGood', mediocre: 'networkMediocre', bad: 'networkBad' };
+    this.#setIcon(
+      this.network,
+      streaming.active ? (strength[networkState(streaming.congestion)] ?? 'networkInactive') : 'networkInactive'
+    );
     if (streaming.active) {
       const kbps = state.stats?.outputTotalFrames
         ? Math.round((streaming.bytes * 8) / 1000 / Math.max(1, parseTimecode(streaming.timecode) / 1000))
         : 0;
       const kbpsDisplay = Number.isFinite(kbps) && kbps > 0 ? kbps : 0;
       setText(this.kbps, `${kbpsDisplay} kbps`);
-      this.network.dataset.state = networkState(streaming.congestion);
     }
 
     // Dropped frames while streaming or recording.

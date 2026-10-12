@@ -71,11 +71,13 @@ export class ControlsPanel {
       on: { click: () => this.onSettings?.() },
     });
 
+    this.replayRow = h('div.obs-control-row', {}, [this.replayButton, this.saveReplayButton]);
+    this.vcamRow = h('div.obs-control-row', {}, [this.vcamButton, this.vcamConfigButton]);
     this.el = h('div.obs-panel.obs-controls-panel', {}, [
       this.streamButton,
       h('div.obs-control-row', {}, [this.recordButton, this.pauseRecordButton]),
-      h('div.obs-control-row', {}, [this.replayButton, this.saveReplayButton]),
-      h('div.obs-control-row', {}, [this.vcamButton, this.vcamConfigButton]),
+      this.replayRow,
+      this.vcamRow,
       this.modeSwitch,
       this.settingsButton,
     ]);
@@ -105,6 +107,10 @@ export class ControlsPanel {
     this.pauseRecordButton.appendChild(icon(recording.paused ? 'play' : 'pause', 14));
     setClass(this.pauseRecordButton, 'is-active', recording.paused);
 
+    /* Like the desktop dock: no replay buffer button until it is enabled in
+     * Settings, no virtual camera button without a virtual camera. */
+    this.replayRow.hidden = replayBuffer.available === false;
+    this.vcamRow.hidden = virtualCam.available === false;
     setText(this.replayButton, replayBuffer.active ? 'Stop Replay Buffer' : 'Start Replay Buffer');
     setClass(this.replayButton, 'is-active', replayBuffer.active);
     this.saveReplayButton.hidden = !replayBuffer.active;

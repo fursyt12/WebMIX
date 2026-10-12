@@ -33,9 +33,9 @@ export class ScenesPanel {
 
     this.toolbar = h('div.obs-list-toolbar', { role: 'toolbar' }, [
       iconButton('plus', { title: 'Add Scene', onClick: () => this.addScene() }),
-      iconButton('minus', { title: 'Remove Scene', onClick: () => this.removeScene() }),
+      iconButton('trash', { title: 'Remove Selected Scene', onClick: () => this.removeScene() }),
       h('div.obs-toolbar-sep'),
-      iconButton('filter', { title: 'Scene Filters', onClick: () => this.openFilters() }),
+      iconButton('filter', { title: 'Open Scene Filters', onClick: () => this.openFilters() }),
       h('div.obs-toolbar-sep'),
       iconButton('up', { title: 'Move Scene Up', onClick: () => this.move(-1) }),
       iconButton('down', { title: 'Move Scene Down', onClick: () => this.move(1) }),
@@ -319,15 +319,12 @@ export class ScenesPanel {
       role: 'option',
       tabindex: '-1',
     });
-    row.append(
-      h('span.obs-list-label', { text: scene.sceneName }),
-      h('span.obs-scene-badges')
-    );
+    row.append(h('span.obs-list-label', { text: scene.sceneName, raw: true }));
     return row;
   }
 
   #updateRow(row, scene, state) {
-    setText(row.querySelector('.obs-list-label'), scene.sceneName);
+    setText(row.querySelector('.obs-list-label'), scene.sceneName, true);
     const isProgram = state.currentProgramScene === scene.sceneName;
     const isPreview = state.currentPreviewScene === scene.sceneName;
     setClass(row, 'is-selected', this.selected === scene.sceneName);
@@ -335,13 +332,7 @@ export class ScenesPanel {
     setClass(row, 'is-preview', state.studioMode && isPreview);
     row.setAttribute('aria-selected', String(this.selected === scene.sceneName));
 
-    const badges = row.querySelector('.obs-scene-badges');
-    clear(badges);
-    if (state.studioMode) {
-      if (isProgram) badges.appendChild(h('span.obs-badge.live', { text: 'LIVE' }));
-      else if (isPreview) badges.appendChild(h('span.obs-badge', { text: 'PREVIEW' }));
-    } else if (isProgram) {
-      badges.appendChild(h('span.obs-badge.live', { text: 'LIVE' }));
-    }
+    /* No badges: the desktop list marks nothing but the selection, and the
+     * panes above already say which scene is in preview and in program. */
   }
 }

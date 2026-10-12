@@ -23,11 +23,20 @@
 export class MultipartJpegParser {
   constructor(boundary = 'webmixframe') {
     this.marker = `--${boundary}`;
+    this.markerBytes = new TextEncoder().encode(this.marker);
+    this.headerEnd = new TextEncoder().encode('\r\n\r\n');
+    this.decoder = new TextDecoder();
     this.buffer = new Uint8Array(0);
     this.frames = 0;
   }
 
   #append(chunk) {
+    /* Nothing left over from the last chunk is the common case between
+     * frames: adopt the chunk instead of copying it. */
+    if (!this.buffer.length) {
+      this.buffer = chunk;
+      return;
+    }
     const next = new Uint8Array(this.buffer.length + chunk.length);
     next.set(this.buffer, 0);
     next.set(chunk, this.buffer.length);
@@ -59,8 +68,7 @@ export class MultipartJpegParser {
   push(chunk) {
     this.#append(chunk);
     const out = [];
-    const markerBytes = new TextEncoder().encode(this.marker);
-    const headerEnd = new TextEncoder().encode('\r\n\r\n');
+    const { markerBytes, headerEnd } = this;
 
     for (;;) {
       const start = this.#indexOf(markerBytes, 0);
@@ -78,7 +86,7 @@ export class MultipartJpegParser {
         break;
       }
 
-      const headers = new TextDecoder().decode(this.buffer.subarray(headersStart, sep));
+      const headers = this.decoder.decode(this.buffer.subarray(headersStart, sep));
       const match = /content-length:\s*(\d+)/i.exec(headers);
       if (!match) {
         this.buffer = this.buffer.subarray(sep + headerEnd.length);
@@ -102,9 +110,13 @@ export class MultipartJpegParser {
 
 /**
  * Consume an MJPEG response, invoking `onFrame(Uint8Array)` per JPEG.
+ *
+ * `onEnd` fires when the host closes a stream nobody aborted, and `onError`
+ * when it could not be opened or broke; an abort through `signal` is silent.
+ * A preview stream has no natural end, so both mean "open it again".
  * @returns {Promise<void>} resolves when the stream ends or is aborted
  */
-export async function openMjpegStream(url, { onFrame, onError, signal } = {}) {
+export async function openMjpegStream(url, { onFrame, onError, onEnd, signal } = {}) {
   try {
     const response = await fetch(url, { signal, cache: 'no-store' });
     if (!response.ok || !response.body) {
@@ -118,8 +130,9 @@ export async function openMjpegStream(url, { onFrame, onError, signal } = {}) {
       if (!value) continue;
       for (const frame of parser.push(value)) onFrame?.(frame);
     }
+    if (!signal?.aborted) onEnd?.();
   } catch (err) {
-    if (err?.name !== 'AbortError') onError?.(err);
+    if (err?.name !== 'AbortError' && !signal?.aborted) onError?.(err);
   }
 }
 

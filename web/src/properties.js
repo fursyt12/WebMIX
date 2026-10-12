@@ -128,10 +128,19 @@ export function renderPropertyForm(schema, { overrides = {}, onChange, onButton 
   };
 
   const field = (property, control, extra = null) => {
-    const row = h('div.obs-property-row', { dataset: { prop: property.name } }, [
-      h('label.obs-property-label', { text: property.label || property.name }),
-      control,
-    ]);
+    const label = property.label || property.name;
+    /* A checkbox goes before its text and the row itself is the <label>, so
+     * clicking anywhere on the line toggles it - as in the desktop dialog. */
+    const row =
+      property.type === 'bool'
+        ? h('label.obs-property-row.is-bool', { dataset: { prop: property.name } }, [
+            control,
+            h('span.obs-property-label', { text: label }),
+          ])
+        : h('div.obs-property-row', { dataset: { prop: property.name } }, [
+            h('label.obs-property-label', { text: label, title: label }),
+            control,
+          ]);
     if (property.description) row.appendChild(h('div.obs-hint.obs-muted', { text: property.description }));
     if (extra) row.appendChild(extra);
     if (property.enabled === false) setClass(row, 'is-disabled', true);

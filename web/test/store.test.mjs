@@ -75,6 +75,11 @@ test('program/preview scene changes and studio mode', () => {
   assert.equal(fresh.currentPreviewScene, null);
   assert.equal(selectors.previewPaneScene(fresh), 'Game');
 
+  // An empty name means "no preview scene", so the pane still falls back.
+  reduceEvent(fresh, 'CurrentPreviewSceneChanged', { sceneName: '' });
+  assert.equal(fresh.currentPreviewScene, null);
+  assert.equal(selectors.previewPaneScene(fresh), 'Game');
+
   // Leaving studio mode clears the preview scene, like OBS does.
   reduceEvent(state, 'StudioModeStateChanged', { studioModeEnabled: false });
   assert.equal(state.currentPreviewScene, null);

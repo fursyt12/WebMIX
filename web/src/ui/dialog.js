@@ -51,8 +51,11 @@ export function openDialog({ title, body, footer, width = 520, height = null, cl
   const footerEl = h('div.obs-dialog-footer');
   if (footer) footerEl.append(...(Array.isArray(footer) ? footer : [footer]));
 
-  dialog.append(titleBar, bodyEl);
-  if (footer) dialog.appendChild(footerEl);
+  /* Always part of the dialog, even when it starts out empty: several dialogs
+   * open with a "Loading..." body and add their buttons once they know what
+   * they are showing, and a footer that was never attached swallowed those
+   * buttons (Properties had no OK/Cancel/Defaults). CSS hides it while empty. */
+  dialog.append(titleBar, bodyEl, footerEl);
   backdrop.appendChild(dialog);
   modalRoot().appendChild(backdrop);
 

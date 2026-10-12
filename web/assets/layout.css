@@ -190,7 +190,7 @@ body.obs-app {
 .obs-dock-row {
   display: flex;
   flex: 0 0 auto;
-  height: var(--obs-bottom-height, 225px);
+  height: var(--obs-bottom-height, 255px);
   min-height: 90px;
   max-height: 70vh;
   min-width: 0;
@@ -372,6 +372,33 @@ body.obs-app {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Studio Mode: "Preview" / "Program" sit in a strip above each picture. The
+   label is positioned rather than laid out, because the pane centres a single
+   item and a second flex item was squeezed against its left edge (and the
+   picture's geometry must not depend on a caption). */
+.obs-preview-pane.has-label {
+  padding-top: 28px;
+}
+
+.obs-preview-pane > .obs-preview-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  margin: 0;
+  line-height: 28px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.obs-preview-pane > .obs-preview-label[hidden] {
+  display: none;
 }
 
 .obs-preview-pane.is-broken::after {
@@ -622,8 +649,13 @@ body.obs-app {
   gap: var(--obs-padding-base);
 }
 
+/* The themed strip centres its children, which let this row grow to the width
+   of a long source name and spill over the next strip; it has to take the
+   strip's width for the name to be cut with an ellipsis instead. */
 .obs-mixer-strip-top {
   display: flex;
+  align-self: stretch;
+  min-width: 0;
   min-height: 0;
   flex: 0 0 auto;
 }
@@ -783,6 +815,10 @@ body.obs-app {
   gap: var(--obs-padding-large);
 }
 
+.obs-dialog-footer:empty {
+  display: none;
+}
+
 .obs-dialog-footer {
   flex: 0 0 auto;
   display: flex;
@@ -893,22 +929,38 @@ body.obs-app {
   gap: var(--obs-padding-base);
 }
 
+/* The control column is minmax(0, 1fr), not 1fr: a bare 1fr cannot shrink
+   below its content, so one long <select> option pushed its row out of the
+   dialog and gave the whole form a horizontal scrollbar. */
 .obs-property-row {
   display: grid;
-  grid-template-columns: minmax(140px, 34%) 1fr;
+  grid-template-columns: minmax(140px, 34%) minmax(0, 1fr);
   align-items: center;
   gap: var(--obs-padding-large);
   min-height: 30px;
+}
+
+.obs-property-row > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* A checkbox reads "[x] what it does", like the desktop dialog, and the whole
+   line toggles it. */
+.obs-property-row.is-bool {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0;
+  cursor: default;
 }
 
 .obs-property-row > .obs-hint {
   grid-column: 1 / -1;
 }
 
+/* Labels wrap rather than truncate: "Refresh browser when scene bec..." tells
+   the user nothing, and there is no tooltip on a touch screen. */
 .obs-property-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .obs-property-number,
@@ -1434,11 +1486,12 @@ body.obs-app {
   padding: var(--obs-padding-wide);
 }
 
+/* Sized in script to the largest box of the grid's aspect ratio that fits, so
+   the picture fills it exactly and the labels - positioned in percentages of
+   this box - land on their tiles. */
 .obs-multiview-frame {
   position: relative;
-  width: 100%;
-  max-width: 100%;
-  max-height: 100%;
+  flex: 0 0 auto;
   background: var(--obs-preview-bg);
 }
 
@@ -1549,4 +1602,759 @@ body.obs-app {
 
 .obs-preview-pane.is-selected .obs-preview-image {
   cursor: move;
+}
+
+/* =========================================================================
+   Parity with the desktop main window (OBSBasic.ui + Yami).
+   ========================================================================= */
+
+/* The bottom row under the preview: Audio Mixer takes what is left, Scene
+   Transitions and Controls keep the width they have on the desktop. */
+.obs-dock-slot[data-dock='mixer'] { flex: 1 1 50%; }
+.obs-dock-slot[data-dock='transitions'] { flex: 0 0 245px; }
+.obs-dock-slot[data-dock='controls'] { flex: 0 0 275px; }
+
+/* ---- the context bar between the preview and the docks ------------------ */
+
+.obs-context-bar {
+  min-height: 44px;
+  margin: 2px 4px;
+  padding: 0 6px;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--obs-radius);
+  background: var(--obs-panel-bg);
+}
+
+.obs-context-source {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 200px;
+  min-width: 0;
+}
+
+.obs-context-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--obs-font-size-large, 13px);
+}
+
+.obs-context-bar.is-empty .obs-context-name {
+  color: var(--obs-text);
+}
+
+.obs-context-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 14px;
+}
+
+.obs-context-btn:disabled {
+  opacity: 0.55;
+}
+
+.obs-context-gap {
+  flex: 0 0 8px;
+}
+
+/* ---- zoom row under the preview ----------------------------------------- */
+
+.obs-preview-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+  padding: 0 4px;
+  color: var(--obs-text-muted);
+  font-size: var(--obs-font-size-xsmall, 9px);
+}
+
+.obs-preview-controls .obs-preview-zoom {
+  width: 18px;
+  height: 14px;
+  padding: 0;
+  opacity: 0.8;
+}
+
+.obs-preview-scale {
+  min-width: 34px;
+  text-align: center;
+}
+
+.obs-preview-controls .obs-preview-scaling-mode {
+  width: 165px;
+  height: 14px;
+  padding: 0 4px;
+  border: 1px solid var(--obs-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--obs-text-muted);
+  font: inherit;
+}
+
+/* ---- Studio Mode -------------------------------------------------------- */
+
+/* "Preview: Scene" / "Program: Scene", left-aligned above each pane. */
+.obs-preview-pane > .obs-preview-label {
+  text-align: left;
+  padding-left: 6px;
+  font-size: var(--obs-font-size-xlarge, 18px);
+}
+
+.obs-studio-column {
+  flex: 0 0 236px;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.obs-studio-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.obs-studio-transition {
+  flex: 1 1 auto;
+  height: 32px;
+}
+
+.obs-studio-options {
+  flex: 0 0 54px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.obs-studio-quick-title {
+  min-height: 32px;
+}
+
+.obs-studio-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.obs-studio-quick-btn {
+  height: 32px;
+}
+
+.obs-studio-column .obs-tbar {
+  width: 100%;
+}
+
+/* ---- docks: lists and their toolbars ------------------------------------ */
+
+/* The desktop source row: icon, name, then visibility and lock at the right. */
+.obs-source-item .obs-list-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.obs-source-item .obs-source-toggle {
+  flex: 0 0 auto;
+}
+
+.obs-source-item.is-hidden .obs-source-icon,
+.obs-source-item.is-hidden .obs-list-label {
+  opacity: 0.6;
+}
+
+/* ---- Scene Transitions dock --------------------------------------------- */
+
+.obs-transition-duration {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.obs-spin-suffix {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  min-width: 0;
+}
+
+.obs-spin-suffix > input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.obs-transition-buttons .obs-transition-add {
+  background: var(--obs-button-bg);
+  border-radius: var(--obs-radius);
+}
+
+/* ---- status bar: indicators at the right, like QStatusBar ---------------- */
+
+.obs-statusbar-inner {
+  justify-content: flex-end;
+  gap: 0;
+}
+
+.obs-statusbar-inner > .obs-status-item,
+.obs-statusbar-inner > .obs-status-group {
+  padding: 0 8px;
+}
+
+.obs-statusbar-inner > .obs-status-group,
+.obs-statusbar-inner > .obs-status-cpu,
+.obs-statusbar-inner > .obs-status-fps {
+  border-left: 1px solid var(--obs-border);
+}
+
+.obs-status-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.obs-status-group > .obs-status-item {
+  padding: 0;
+}
+
+.obs-status-network::before {
+  content: none !important;
+}
+
+.obs-status-message {
+  padding-left: 6px;
+}
+
+/* ---- dock title bars ---------------------------------------------------- */
+
+/* QDockWidget's title bar is a thin strip: the name, and one small button
+   that floats the dock. */
+.obs-dock-title {
+  min-height: 20px;
+  padding: 1px 4px 1px 7px;
+}
+
+.obs-dock-buttons .obs-icon-btn {
+  width: 16px;
+  height: 16px;
+  min-width: 0;
+  padding: 0;
+  opacity: 0.85;
+}
+
+.obs-dock-buttons .obs-icon-btn:hover {
+  opacity: 1;
+}
+
+.obs-dock:not(.is-floating) .obs-dock-close {
+  display: none;
+}
+
+/* A floated dock: a small window over the page. */
+.obs-dock.is-floating {
+  position: fixed;
+  z-index: 400;
+  margin: 0;
+  resize: both;
+  min-width: 180px;
+  min-height: 100px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+}
+
+.obs-dock.is-floating > .obs-dock-title {
+  cursor: move;
+}
+
+.obs-dock-slot.is-vacated {
+  display: none;
+}
+
+/* ---- list toolbars: groups divided like the desktop's -------------------- */
+
+.obs-list-toolbar {
+  gap: 2px;
+  padding: 2px 4px;
+  min-height: 30px;
+  border-top: 1px solid var(--obs-border);
+}
+
+.obs-list-toolbar .obs-icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.obs-list-toolbar .obs-toolbar-sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 2px 5px;
+  background: var(--obs-border);
+}
+
+/* ---- transitions dock --------------------------------------------------- */
+
+.obs-transitions-panel .obs-transition-duration {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.obs-transitions-panel .obs-transition-duration .obs-spin {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.obs-transitions-panel .obs-transition-buttons {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+}
+
+.obs-transitions-panel .obs-transition-buttons .obs-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.obs-transitions-panel .obs-transition-buttons .obs-icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+/* The bar is a flex row; its content has to take the row for "push to the
+   right" to mean anything. */
+.obs-statusbar-inner {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* =========================================================================
+   Audio Mixer - the desktop's VolumeControl strips (Yami).
+   ========================================================================= */
+
+.obs-mixer-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.obs-mixer-list {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 0;
+  background: var(--obs-window-bg, #1D1F26);
+}
+
+.obs-vol {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 74px;
+  max-width: 124px;
+  padding-bottom: 4px;
+  border-right: 1px solid var(--obs-border);
+  background: var(--obs-panel-bg);
+}
+
+.obs-vol.is-inactive {
+  background: var(--obs-grey7, #1D1F26);
+}
+
+/* QSS: VolumeControl .mixer-category, and its pinned / hidden / unassigned
+   variants. */
+.obs-vol-category {
+  flex: 0 0 auto;
+  height: 14px;
+  line-height: 14px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--obs-border);
+  font-size: 9px;
+  font-weight: var(--obs-font-weight-bold);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  background: var(--obs-primary-surface, #162A64);
+  color: var(--obs-primary-lighter, #718CDC);
+  user-select: none;
+}
+
+.obs-vol.is-pinned .obs-vol-category {
+  background: var(--obs-primary-darker, #1A3278);
+  color: var(--obs-text-light, #FFFFFF);
+}
+
+.obs-vol.is-hidden .obs-vol-category {
+  background: #2E1A60;
+  color: var(--obs-purple1, #997FDC);
+}
+
+.obs-vol.is-unassigned .obs-vol-category {
+  background: var(--obs-yellow6, #493709);
+  color: var(--obs-yellow1, #EABC48);
+}
+
+/* VolumeName: the name, elided in the middle, and the arrow of its menu. */
+.obs-vol-name {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--obs-text);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: default;
+}
+
+.obs-vol.is-hidden .obs-vol-name,
+.obs-vol.is-inactive .obs-vol-name {
+  color: var(--obs-text-muted);
+}
+
+.obs-vol-name:hover {
+  background: var(--obs-button-bg-hover, rgba(255, 255, 255, 0.06));
+}
+
+.obs-vol-name-text {
+  flex: 1 1 auto;
+  display: flex;
+  min-width: 0;
+  white-space: pre;
+}
+
+.obs-vol-name-head {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.obs-vol-name-tail {
+  flex: 0 0 auto;
+}
+
+.obs-vol-name-arrow {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid var(--obs-text-muted);
+}
+
+.obs-vol-db {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  color: var(--obs-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Fader, meter and scale side by side. */
+.obs-vol-body {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  min-height: 60px;
+  padding: 2px 6px 4px 8px;
+}
+
+.obs-vol-fader {
+  flex: 0 0 28px;
+  display: flex;
+  justify-content: center;
+  /* The ticks beside the groove. */
+  background:
+    repeating-linear-gradient(to bottom, transparent 0, transparent 9px, var(--obs-meter-minor-tick, #5B6273) 9px, var(--obs-meter-minor-tick, #5B6273) 10px)
+    right 0 top 38% / 9px 62% no-repeat;
+}
+
+.obs-vol-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 12px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+  --fill: 100%;
+}
+
+.obs-vol-slider::-webkit-slider-runnable-track {
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to top, var(--obs-primary-light, #476BD7) 0, var(--obs-primary-light, #476BD7) var(--fill), var(--obs-window-bg, #13141A) var(--fill));
+}
+
+.obs-vol-slider::-moz-range-track {
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to top, var(--obs-primary-light, #476BD7) 0, var(--obs-primary-light, #476BD7) var(--fill), var(--obs-window-bg, #13141A) var(--fill));
+}
+
+.obs-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 20px;
+  margin-left: -3.5px;
+  border: 0;
+  border-radius: 5px;
+  background: #FFFFFF;
+}
+
+.obs-vol-slider::-moz-range-thumb {
+  width: 10px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: #FFFFFF;
+}
+
+.obs-vol-slider:disabled::-webkit-slider-thumb {
+  background: var(--obs-text-disabled, #6B6F7B);
+}
+
+.obs-vol-slider:disabled::-moz-range-thumb {
+  background: var(--obs-text-disabled, #6B6F7B);
+}
+
+.obs-vol-meter {
+  flex: 0 0 13px;
+  width: 13px;
+  height: auto;
+  min-height: 0;
+  align-self: stretch;
+}
+
+.obs-vol.is-muted .obs-vol-meter {
+  opacity: 0.75;
+}
+
+/* The scale: a tick and a label every 6 dB, placed by the meter's own mapping. */
+.obs-vol-scale {
+  position: relative;
+  flex: 0 0 24px;
+  /* The meter's last 5px are its input indicator, not part of the scale. */
+  margin-bottom: 5px;
+  color: var(--obs-meter-major-tick, #969696);
+  font-size: 8px;
+  font-weight: var(--obs-font-weight-bold);
+  line-height: 1;
+}
+
+.obs-vol-scale > span {
+  position: absolute;
+  left: 0;
+  top: calc(var(--at) * 100%);
+  transform: translateY(-50%);
+  padding-left: 6px;
+  white-space: nowrap;
+}
+
+.obs-vol-scale > span::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  width: 3px;
+  height: 1px;
+  background: currentColor;
+}
+
+.obs-vol-buttons {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 2px 4px 0;
+}
+
+.obs-vol-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--obs-radius);
+  background: transparent;
+  cursor: default;
+}
+
+.obs-vol-btn:hover {
+  background: var(--obs-button-bg-hover, rgba(255, 255, 255, 0.08));
+}
+
+/* ---- horizontal layout: one row per source ------------------------------- */
+
+.obs-mixer-list.is-horizontal {
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.obs-mixer-list.is-horizontal .obs-vol {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'category name db buttons'
+    'body body body buttons';
+  align-items: center;
+  min-width: 0;
+  max-width: none;
+  padding: 2px 6px 4px 0;
+  border-right: 0;
+  border-bottom: 1px solid var(--obs-border);
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-category {
+  grid-area: category;
+  margin: 2px 4px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--obs-radius);
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-name { grid-area: name; }
+.obs-mixer-list.is-horizontal .obs-vol-db { grid-area: db; }
+.obs-mixer-list.is-horizontal .obs-vol-buttons { grid-area: buttons; padding: 0 4px; }
+
+.obs-mixer-list.is-horizontal .obs-vol-body {
+  grid-area: body;
+  flex-direction: column-reverse;
+  min-height: 0;
+  padding: 0 8px;
+  gap: 2px;
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-fader {
+  flex: 0 0 16px;
+  background: none;
+  align-items: center;
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-slider {
+  writing-mode: horizontal-tb;
+  direction: ltr;
+  width: 100%;
+  height: 12px;
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-slider::-webkit-slider-runnable-track {
+  width: auto;
+  height: 3px;
+  background: linear-gradient(to right, var(--obs-primary-light, #476BD7) 0, var(--obs-primary-light, #476BD7) var(--fill), var(--obs-window-bg, #13141A) var(--fill));
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-slider::-moz-range-track {
+  width: auto;
+  height: 3px;
+  background: linear-gradient(to right, var(--obs-primary-light, #476BD7) 0, var(--obs-primary-light, #476BD7) var(--fill), var(--obs-window-bg, #13141A) var(--fill));
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-slider::-webkit-slider-thumb {
+  width: 20px;
+  height: 10px;
+  margin: -3.5px 0 0;
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-slider::-moz-range-thumb {
+  width: 20px;
+  height: 10px;
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-meter {
+  flex: 0 0 13px;
+  width: 100%;
+  height: 13px;
+}
+
+.obs-mixer-list.is-horizontal .obs-vol-scale {
+  display: none;
+}
+
+/* ---- the mixer's toolbar ------------------------------------------------ */
+
+.obs-mixer-toolbar {
+  gap: 0;
+  padding: 0 4px;
+  min-height: 32px;
+  border-top: 1px solid var(--obs-border);
+}
+
+.obs-mixer-toolbar .obs-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.obs-mixer-toolbar .obs-toolbar-sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 3px 2px;
+  background: var(--obs-border);
+}
+
+.obs-mixer-toolbar .obs-icon-btn {
+  width: 30px;
+  height: 26px;
+}
+
+.obs-mixer-hidden-count {
+  padding: 0 10px;
+  color: var(--obs-text-muted);
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.obs-mixer-hidden-count.is-active {
+  color: var(--obs-text);
+}
+
+.obs-mixer-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.obs-mixer-options-arrow {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid currentColor;
+}
+
+/* Too short for a label every 6 dB: keep every other one. */
+.obs-mixer-list.is-compact .obs-vol-scale > span:nth-child(even) {
+  display: none;
+}
+
+/* Studio Mode is a checked button on the desktop: filled, not tinted text. */
+.obs-btn.is-active.obs-studio-btn {
+  background: var(--obs-primary);
+  border-color: var(--obs-primary-light);
+  color: var(--obs-text-light, #FFFFFF);
 }

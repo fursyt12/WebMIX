@@ -75,7 +75,7 @@ export class ObsApi {
     this.store.batch(() => {
       state.scenes = toDisplayOrder(sceneList.scenes);
       state.currentProgramScene = sceneList.currentProgramSceneName ?? null;
-      state.currentPreviewScene = sceneList.currentPreviewSceneName ?? null;
+      state.currentPreviewScene = sceneList.currentPreviewSceneName || null;
       state.studioMode = !!studioMode.studioModeEnabled;
 
       state.inputs = {};
@@ -127,6 +127,10 @@ export class ObsApi {
 
       state.outputs.replayBuffer.active = !!replayStatus.outputActive;
       state.outputs.virtualCam.active = !!vcamStatus.outputActive;
+      /* OBS only offers these when they exist: the replay buffer has to be
+       * enabled in Settings, the virtual camera needs its driver. */
+      state.outputs.replayBuffer.available = 'outputActive' in replayStatus;
+      state.outputs.virtualCam.available = 'outputActive' in vcamStatus;
 
       state.sceneCollections = {
         current: sceneCollections.currentSceneCollectionName ?? null,
@@ -265,7 +269,7 @@ export class ObsApi {
     this.store.batch(() => {
       this.store.state.scenes = toDisplayOrder(data.scenes);
       this.store.state.currentProgramScene = data.currentProgramSceneName ?? null;
-      this.store.state.currentPreviewScene = data.currentPreviewSceneName ?? null;
+      this.store.state.currentPreviewScene = data.currentPreviewSceneName || null;
     });
     this.store.notify(Topic.Scenes);
     return data;
@@ -282,7 +286,7 @@ export class ObsApi {
     if (enabled) {
       try {
         const data = await this.request('GetCurrentPreviewScene');
-        this.store.state.currentPreviewScene = data.currentSceneName ?? null;
+        this.store.state.currentPreviewScene = data.currentSceneName || null;
       } catch {
         /* not fatal */
       }
@@ -344,7 +348,8 @@ export class ObsApi {
     // The native service also sends what OBS itself calls each kind ("Display
     // Capture"). The websocket transport sends ids only, so fall back to those.
     const names = data.inputKindNames ?? [];
-    return kinds.map((kind, index) => ({ kind, name: names[index] || kind }));
+    const icons = data.inputKindIcons ?? [];
+    return kinds.map((kind, index) => ({ kind, name: names[index] || kind, icon: icons[index] ?? null }));
   }
 
   async getInputDefaultSettings(inputKind) {

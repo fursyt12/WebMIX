@@ -154,14 +154,76 @@ The wire format is not neutral, and two conventions bite:
   obs-websocket sends the numeric enum. The native service sends the names
   (see `BoundsTypeName`), and reads either form back.
 
+## The preview
+
+The preview is the one part of the interface where the transport decides how
+the product feels, so it does not share the control channel's "everything on
+the main thread" rule. A frame passes through three threads, each doing the one
+step it is suited to (`WebMixPreview.cpp`):
+
+```
+graphics thread   OBS has just rendered the program
+                  -> draw the picture into a small texture kept between frames
+                  -> start the read-back
+worker thread     finish the read-back (this is the wait for the GPU)
+                  -> skip the frame if the picture has not changed
+                  -> JPEG-encode
+main thread       write the part to every socket that has room for it
+```
+
+* **The program pane is the program.** `view=program` scales the texture OBS
+  already rendered, so it costs one blit, shows transitions, and needs no new
+  stream when the scene changes. Only the Studio Mode preview pane (and
+  multiview tiles) render a scene a second time, as OBS's own preview does.
+* **A frame is made only when somebody can take it.** A socket with bytes still
+  queued skips the frame; when every client is in that state nothing is rendered
+  or encoded at all. A slow reader therefore costs neither memory nor latency.
+  (The first implementation wrote every frame to every socket regardless: over
+  Wi-Fi the queue grew by megabytes a second until OBS ran out of memory, and
+  what did arrive was seconds old.) The kernel's send buffer is capped for the
+  same reason - what waits there cannot be skipped.
+* **The encoder paces the renderer.** The graphics thread draws the next frame
+  only when the worker is idle, so an encoder that cannot keep up lowers the
+  frame rate instead of building a queue.
+* **OBS's frame rate is the ceiling.** Frames come from a "main texture
+  rendered" callback, not a timer, so there are no duplicates and no beat
+  between two clocks.
+* **Each part carries the boundary that ends it.** A browser showing the stream
+  in an `<img>` paints a part once it has seen that boundary; leading with it
+  instead held every frame back until the next one arrived.
+* **Streams that ask for the same picture share it** - two tabs cost one
+  render, one read-back and one encode.
+
+`GET /api/status` reports the counters (`preview.encoded`, `sent`, `skipped`,
+`still`, `busy`, `encodeMs`), which is the first place to look when the preview
+feels slow: `skipped` is a client that cannot keep up, `busy` an encoder that
+cannot, `still` a picture that is simply not changing.
+
+On the page, a pane decodes only the newest frame it has, reopens a stream that
+ends, errors or goes quiet (with backoff, and without involving the store), and
+closes its streams while the tab is hidden.
+
+## Lifetime
+
+Two rules that are easy to break and expensive when broken:
+
+* **A looked-up source is handed over, not copied.** `OBSSource` takes its own
+  reference; a search that already holds one must give it up (`Adopt()` in
+  `WebMixControl.cpp`). Leaving it behind makes the source immortal: removed
+  inputs keep running, and at exit the audio inputs outlive libobs.
+* **The server leaves when OBS says it is leaving.** It is a child of the
+  application object, which is destroyed after libobs; everything that touches
+  libobs is therefore stopped on `OBS_FRONTEND_EVENT_EXIT`, not in a destructor.
+
 ## Threading
 
-Every entry point runs on the Qt main thread - the embedded HTTP server lives
-there, and so do the frontend callbacks and almost all libobs signals - so no
-locking is needed and no request handler may block. The two exceptions are
-explicitly contained: the audio capture callback accumulates levels under its
-own mutex, and the remux worker keeps its existing dedicated thread
-(`WebMixRemux`).
+The control channel runs on the Qt main thread - the embedded HTTP server lives
+there, and so do the frontend callbacks and most libobs signals - so no request
+handler may block. The exceptions are explicitly contained: the audio capture
+callback accumulates levels under its own mutex, the meter table has a second
+one because a source is destroyed on whichever thread drops its last reference,
+the remux worker keeps its dedicated thread (`WebMixRemux`), and the preview
+pipeline is described above.
 
 ## Where things live
 

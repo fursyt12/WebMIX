@@ -1,5 +1,5 @@
 /*
- * WebMIX - source toolbar (the context bar below the menubar).
+ * WebMIX - source toolbar (the context bar between the preview and the docks).
  *
  * Shows the selected source's name plus its actions.  OBS builds a per-kind
  * toolbar here (browser / media / color / device-select variants); the web
@@ -10,16 +10,16 @@
  *  - browser "Refresh cache" via PressInputPropertiesButton
  */
 import { h, clear, setText } from '../dom.js';
-import { icon, iconButton } from './icons.js';
-import { Topic } from '../store.js';
+import { icon, iconButton, sourceIcon } from './icons.js';
+import { Topic, selectors } from '../store.js';
 
 const MEDIA_ACTIONS = [
-  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART', icon: 'refresh', title: 'Restart' },
-  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PREVIOUS', icon: 'up', title: 'Previous' },
-  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PLAY', icon: 'play', title: 'Play' },
-  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE', icon: 'pause', title: 'Pause' },
-  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP', icon: 'stop', title: 'Stop' },
-  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_NEXT', icon: 'down', title: 'Next' },
+  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART', icon: 'mediaRestart', title: 'Restart' },
+  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PREVIOUS', icon: 'mediaPrevious', title: 'Previous' },
+  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PLAY', icon: 'mediaPlay', title: 'Play' },
+  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE', icon: 'mediaPause', title: 'Pause' },
+  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP', icon: 'mediaStop', title: 'Stop' },
+  { action: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_NEXT', icon: 'mediaNext', title: 'Next' },
 ];
 
 export class SourceToolbar {
@@ -40,70 +40,66 @@ export class SourceToolbar {
     this.store.notify(Topic.SceneItems);
   }
 
+  /*! A button of the context bar: the desktop's are ordinary push buttons
+   *  with the icon in front of the text. */
+  #button(iconName, label, onClick, disabled = false) {
+    const button = h('button.obs-btn.obs-context-btn', { type: 'button', disabled, on: { click: onClick } });
+    if (iconName) button.appendChild(icon(iconName, 16));
+    button.appendChild(h('span', { text: label }));
+    return button;
+  }
+
+  /*! Nothing selected: the bar keeps its two buttons, disabled, like OBS. */
   #renderEmpty() {
     clear(this.root);
-    this.root.appendChild(h('span.obs-toolbar-context.obs-muted', { text: 'No source selected' }));
+    this.root.append(
+      h('span.obs-context-source', {}, [h('span.obs-context-name', { text: 'No source selected' })]),
+      this.#button('gear', 'Properties', null, true),
+      this.#button('filter', 'Filters', null, true)
+    );
   }
 
   update(state) {
     const name = this.selected;
-    if (!name || !state.inputs[name]) {
+    const item = name
+      ? selectors.sceneItems(state, selectors.previewPaneScene(state)).find((i) => i.sourceName === name)
+      : null;
+    if (!name || (!state.inputs[name] && !item)) {
       this.#renderEmpty();
       this.root.classList.add('is-empty');
       return;
     }
     this.root.classList.remove('is-empty');
 
-    const input = state.inputs[name];
-    const kind = input.inputKind ?? '';
+    const input = state.inputs[name] ?? {};
+    const kind = input.inputKind ?? item?.inputKind ?? '';
     const isMedia = /ffmpeg_source|vlc_source|media_source/.test(kind);
     const isBrowser = /browser_source/.test(kind);
+    /* OBS_SOURCE_INTERACTION: only sources that take input get the button. */
+    const interactive = isBrowser || ((input.inputKindCaps ?? 0) & (1 << 5)) !== 0;
 
     clear(this.root);
     this.root.append(
-      h('span.obs-toolbar-context', {}, [
-        h('span.obs-source-icon', {}, [icon('folder', 16)]),
-        h('span.obs-toolbar-context-label', { text: name }),
+      h('span.obs-context-source', {}, [
+        sourceIcon(item?.sourceIcon ?? 'default', 16),
+        h('span.obs-context-name', { text: name, raw: true, title: name }),
       ]),
-      h('div.obs-toolbar-sep')
+      this.#button('gear', 'Properties', () => this.openProperties?.(name)),
+      this.#button('filter', 'Filters', () => this.openFilters?.(name))
     );
-
-    const propsBtn = h('button.obs-btn.flat', {
-      type: 'button',
-      on: { click: () => this.openProperties?.(name) },
-    });
-    propsBtn.append(icon('properties', 14), ' Properties');
-    const filtersBtn = h('button.obs-btn.flat', {
-      type: 'button',
-      on: { click: () => this.openFilters?.(name) },
-    });
-    filtersBtn.append(icon('filter', 14), ' Filters');
-    const interactBtn = h('button.obs-btn.flat', {
-      type: 'button',
-      on: { click: () => this.#interact(name) },
-    });
-    interactBtn.append(icon('interact', 14), ' Interact');
-
-    this.root.append(propsBtn, filtersBtn, interactBtn);
+    if (interactive) {
+      this.root.append(this.#button('interact', 'Interact', () => this.#interact(name)));
+    }
 
     if (isBrowser) {
       this.root.append(
-        h('div.obs-toolbar-sep'),
-        h('button.obs-btn.flat', {
-          type: 'button',
-          text: 'Refresh cache',
-          on: { click: () => this.#pressButton(name, 'refreshnocache', 'Cache refreshed') },
-        }),
-        h('button.obs-btn.flat', {
-          type: 'button',
-          text: 'Open URL',
-          on: { click: () => this.#openUrl(name) },
-        })
+        h('span.obs-context-gap'),
+        this.#button('refresh', 'Refresh', () => this.#pressButton(name, 'refreshnocache', 'Cache refreshed'))
       );
     }
 
     if (isMedia) {
-      this.root.append(h('div.obs-toolbar-sep'));
+      this.root.append(h('span.obs-context-gap'));
       for (const entry of MEDIA_ACTIONS) {
         this.root.appendChild(
           iconButton(entry.icon, {

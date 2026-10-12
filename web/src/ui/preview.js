@@ -17,6 +17,8 @@
  */
 import { h, clear, setClass } from '../dom.js';
 import { showContextMenu } from './dialog.js';
+import { icon, iconButton } from './icons.js';
+import { t } from '../i18n.js';
 import { WebGpuPreview, webgpuAvailable, openMjpegStream } from '../webgpu-preview.js';
 import { selectors } from '../store.js';
 import {
@@ -34,7 +36,15 @@ import {
   snapResizeBox,
 } from '../scene-geometry.js';
 
+/* The most the page asks for. OBS only makes a frame when it has rendered one,
+ * so the rate actually delivered is OBS's own (30 or 60), never above it. */
 const PREVIEW_FPS = 60;
+
+/* How long a pane may go without a frame before its stream is reopened. The
+ * host sends a still picture again once a second, so several seconds of
+ * silence means the connection is gone, not that nothing moved. */
+const STREAM_STALL_MS = 4000;
+const STREAM_RETRY_MS = [250, 500, 1000, 2000, 4000];
 
 /* The stream frame is requested at the size the pane actually shows, rounded up
  * to this step. Asking for the full canvas regardless meant decoding and
@@ -64,10 +74,11 @@ export class PreviewPanel {
    * @param {object} [options.host]  result of detectHost(): enables the stream endpoint
    * @param {(action: string, payload?: any) => void} options.onContextAction
    */
-  constructor({ store, api, canvas, labels, placeholder, onContextAction, onSelectSource, host = {} }) {
+  constructor({ store, api, canvas, labels, placeholder, controls = null, onContextAction, onSelectSource, host = {} }) {
     this.store = store;
     this.api = api;
     this.canvas = canvas;
+    this.controls = controls;
     this.labels = labels;
     this.placeholder = placeholder;
     this.onContextAction = onContextAction;
@@ -91,12 +102,184 @@ export class PreviewPanel {
     this.streamGeneration = 0;
     this.surfaces = []; // [{ kind, scene, img?, canvas?, renderer?, abort?, busy? }]
 
-    this.onVisibility = () => this.#schedule(0);
+    this.onVisibility = () => {
+      this.#schedule(0);
+      /* A hidden tab still reads its streams, so OBS would keep rendering and
+       * encoding for nobody. Close them and reopen on return. */
+      if (!this.running || (!this.useWebgpu && !this.useNativeStream)) return;
+      if (document.hidden) {
+        this.#pauseStreams();
+      } else {
+        for (const surface of this.surfaces) this.#startStream(surface);
+      }
+    };
     this.onResize = () => this.#resizeSurfaces();
     document.addEventListener('visibilitychange', this.onVisibility);
     window.addEventListener('resize', this.onResize);
 
+    this.#buildControls();
     this.#buildSurfaces();
+  }
+
+  /* ------------------------------------------- zoom row and studio column */
+
+  /*! The row under the preview: zoom out, the scale in percent, zoom in and
+   *  the scaling mode - the desktop window's own controls. */
+  #buildControls() {
+    if (!this.controls) return;
+    this.scaleLabel = h('span.obs-preview-scale', { text: '100%' });
+    this.scaleMode = h('select.obs-preview-scaling-mode', {
+      'aria-label': 'Preview Scaling',
+      on: { change: () => this.setScaling(this.scaleMode.value) },
+    });
+    this.controls.replaceChildren(
+      iconButton('minus', { title: 'Zoom Out', size: 10, className: 'obs-preview-zoom', onClick: () => this.zoomOut() }),
+      this.scaleLabel,
+      iconButton('plus', { title: 'Zoom In', size: 10, className: 'obs-preview-zoom', onClick: () => this.zoomIn() }),
+      this.scaleMode
+    );
+    this.#updateControls();
+  }
+
+  /*! How large the picture is drawn, relative to the canvas. */
+  #displayScale() {
+    const video = this.store.state.video ?? {};
+    const baseWidth = video.baseWidth || 1920;
+    const baseHeight = video.baseHeight || 1080;
+    if (this.scaling === 'canvas') return this.zoom;
+    if (this.scaling === 'output') return ((video.outputWidth || baseWidth) / baseWidth) * this.zoom;
+    const pane = this.surfaces[0]?.pane;
+    if (!pane) return this.zoom;
+    const style = getComputedStyle(pane);
+    const width = pane.clientWidth - parseFloat(style.paddingLeft || 0) - parseFloat(style.paddingRight || 0);
+    const height = pane.clientHeight - parseFloat(style.paddingTop || 0) - parseFloat(style.paddingBottom || 0);
+    if (width <= 0 || height <= 0) return this.zoom;
+    return Math.min(width / baseWidth, height / baseHeight) * this.zoom;
+  }
+
+  #updateControls() {
+    if (!this.controls || !this.scaleMode) return;
+    const video = this.store.state.video ?? {};
+    const sizes = `${video.baseWidth || 1920}x${video.baseHeight || 1080}/${video.outputWidth || 0}x${video.outputHeight || 0}`;
+    if (this.scaleMode.dataset.sizes !== sizes) {
+      this.scaleMode.dataset.sizes = sizes;
+      this.scaleMode.replaceChildren(
+        h('option', { value: 'window', text: t('Basic.MainMenu.Edit.Scale.Window') }),
+        h('option', {
+          value: 'canvas',
+          text: t('Basic.MainMenu.Edit.Scale.Canvas', video.baseWidth || 1920, video.baseHeight || 1080),
+        }),
+        h('option', {
+          value: 'output',
+          text: t('Basic.MainMenu.Edit.Scale.Output', video.outputWidth || 1280, video.outputHeight || 720),
+        })
+      );
+    }
+    this.scaleMode.value = this.scaling;
+    this.scaleLabel.textContent = `${Math.round(this.#displayScale() * 100)}%`;
+  }
+
+  /*! Studio Mode's centre column, between the two panes: Transition and its
+   *  options menu, the quick transition buttons and the T-bar. */
+  #buildStudioColumn() {
+    const run = (promise) => promise.catch((err) => this.onContextAction?.('previewError', err?.message ?? String(err)));
+
+    const transition = h('button.obs-btn.obs-studio-transition', {
+      type: 'button',
+      text: t('Transition'),
+      on: { click: () => run(this.api.triggerStudioTransition()) },
+    });
+    const options = iconButton('dotsV', {
+      className: 'obs-btn obs-studio-options',
+      onClick: (event) => this.#openStudioOptions(event),
+    });
+    this.quickList = h('div.obs-studio-quick');
+    this.tbar = h('input.obs-range.obs-tbar', {
+      type: 'range',
+      min: '0',
+      max: '1',
+      step: '0.001',
+      value: '0',
+      'aria-label': 'T-Bar',
+      on: {
+        input: () => this.api.setTBarPosition(Number(this.tbar.value), false).catch(() => {}),
+        change: () => {
+          run(this.api.setTBarPosition(Number(this.tbar.value), true));
+          /* Released: OBS finishes or reverts the transition, and the bar
+           * goes back to rest for the next one. */
+          setTimeout(() => { if (this.tbar) this.tbar.value = '0'; }, 400);
+        },
+      },
+    });
+
+    this.#refreshStudioState();
+    return h('div.obs-studio-column', {}, [
+      h('div.obs-studio-row', {}, [transition, options]),
+      h('div.obs-studio-row.obs-studio-quick-title', {}, [h('span', { text: t('QuickTransitions') })]),
+      this.quickList,
+      this.tbar,
+    ]);
+  }
+
+  /*! Ask OBS for its quick transitions and Studio Mode options. */
+  async #refreshStudioState() {
+    if (!this.host?.obsControl) return;
+    try {
+      this.studioState = await this.api.request('GetStudioModeState');
+    } catch {
+      this.studioState = null;
+    }
+    if (!this.quickList) return;
+    const quick = this.studioState?.quickTransitions ?? [];
+    this.quickList.replaceChildren(
+      ...quick.map((entry) =>
+        h('button.obs-btn.obs-studio-quick-btn', {
+          type: 'button',
+          text: entry.name,
+          raw: true,
+          on: {
+            click: () =>
+              this.api
+                .request('TriggerQuickTransition', { quickTransitionId: entry.id })
+                .catch((err) => this.onContextAction?.('previewError', err?.message ?? String(err))),
+          },
+        })
+      )
+    );
+  }
+
+  /*! The three toggles behind the menu button next to Transition. */
+  async #openStudioOptions(event) {
+    await this.#refreshStudioState();
+    const state = this.studioState ?? {};
+    const toggle = (optionName) => async () => {
+      try {
+        await this.api.request('SetStudioModeOption', { optionName, optionEnabled: !state[optionName] });
+      } catch (err) {
+        this.onContextAction?.('previewError', err?.message ?? String(err));
+      }
+    };
+    const rect = event.currentTarget.getBoundingClientRect();
+    showContextMenu({ x: rect.left, y: rect.bottom }, [
+      { label: t('QuickTransitions.DuplicateScene'), checked: !!state.duplicateScene, action: toggle('duplicateScene') },
+      {
+        label: t('QuickTransitions.EditProperties'),
+        checked: !!state.duplicateSources,
+        disabled: !state.duplicateScene,
+        action: toggle('duplicateSources'),
+      },
+      { label: t('QuickTransitions.SwapScenes'), checked: !!state.swapScenes, action: toggle('swapScenes') },
+    ]);
+  }
+
+  /*! "Preview: Scene" / "Program: Scene" above the panes. */
+  #updateLabels() {
+    for (const surface of this.surfaces) {
+      if (!surface.label) continue;
+      const scene = this.#sceneFor(surface.kind) ?? '';
+      surface.label.textContent =
+        surface.kind === 'program' ? t('StudioMode.ProgramSceneName', scene) : t('StudioMode.PreviewSceneName', scene);
+    }
   }
 
   /** Decide the backend once, before the first frame is drawn. */
@@ -133,17 +316,33 @@ export class PreviewPanel {
    * Rounded up to a step so dragging a splitter does not reopen the stream on
    * every pixel, and never larger than the canvas itself. */
   #streamSize(surface) {
+    /* Measured on the pane, not the picture: an <img> has no size until its
+     * first frame arrives, so measuring it asked for the whole canvas and the
+     * fallback preview streamed full resolution into a pane a third the size.
+     * Pixel-exact scaling modes are the exception - they do show every pixel. */
+    const rect = surface.pane.getBoundingClientRect();
+    const style = getComputedStyle(surface.pane);
+    /* Zooming in magnifies the picture, so it needs the pixels to match. */
+    const zoom = Math.max(1, this.zoom);
+    const room = {
+      width: (rect.width - parseFloat(style.paddingLeft || 0) - parseFloat(style.paddingRight || 0)) * zoom,
+      height: (rect.height - parseFloat(style.paddingTop || 0) - parseFloat(style.paddingBottom || 0)) * zoom,
+    };
     return streamFrameSize(
-      surface.frame.getBoundingClientRect(),
+      this.scaling === 'window' ? room : { width: 0, height: 0 },
       this.store.state.video,
       Math.min(window.devicePixelRatio || 1, 2),
       STREAM_SIZE_STEP
     );
   }
 
+  /*! The scene a pane shows. Through the selectors, because Studio Mode can
+   *  be switched on from anywhere (another tab, a hotkey) and until OBS names
+   *  a preview scene the preview pane shows the program scene - reading the
+   *  raw field left that pane empty. */
   #sceneFor(kind) {
     const state = this.store.state;
-    return kind === 'preview' ? state.currentPreviewScene : state.currentProgramScene;
+    return kind === 'preview' ? selectors.previewPaneScene(state) : selectors.programPaneScene(state);
   }
 
   #buildSurfaces() {
@@ -186,7 +385,6 @@ export class PreviewPanel {
 
       const label = h('div.obs-preview-label', {
         class: kind === 'program' ? 'is-program' : 'is-preview',
-        text: kind === 'program' ? 'Program' : 'Preview',
       });
       if (!studio) label.hidden = true;
 
@@ -203,9 +401,13 @@ export class PreviewPanel {
       const guideY = h('div.obs-preview-guide.is-y', { hidden: true });
 
       const pane = h(`div.obs-preview-pane.is-${kind}`, {}, [label, frame, guideX, guideY, selection]);
+      setClass(pane, 'has-label', studio);
       this.canvas.appendChild(pane);
 
-      const surface = { kind, scene, pane, frame, selection, guideX, guideY, guides: null,
+      /* The centre column sits between the two panes. */
+      if (studio && kind === 'program') this.canvas.insertBefore(this.#buildStudioColumn(), pane);
+
+      const surface = { kind, scene, pane, frame, label, selection, guideX, guideY, guides: null,
         img: this.useWebgpu ? null : frame, canvas: this.useWebgpu ? frame : null };
       this.surfaces.push(surface);
       this.#wireSelection(surface);
@@ -242,6 +444,11 @@ export class PreviewPanel {
       this.#openContextMenu(event);
     });
 
+    if (!studio) {
+      this.quickList = null;
+      this.tbar = null;
+    }
+    this.#updateLabels();
     this.#applyScaling();
     this.render();
     /* The native stream is a plain <img src>, so it has to be pointed at the
@@ -254,9 +461,15 @@ export class PreviewPanel {
 
   #stopStreams() {
     for (const surface of this.surfaces) {
+      clearTimeout(surface.retryTimer);
       surface.abort?.abort();
       surface.abort = null;
+      surface.pending = null;
+      surface.bitmap?.close?.();
+      surface.bitmap = null;
       surface.renderer?.destroy?.();
+      surface.renderer = null;
+      surface.stopped = true;
     }
   }
 
@@ -268,10 +481,28 @@ export class PreviewPanel {
   #streamUrl(surface) {
     const { width, height } = this.#streamSize(surface);
     surface.streamWidth = width;
-    return (
-      `api/preview.mjpg?source=${encodeURIComponent(this.#sceneFor(surface.kind))}` +
-      `&width=${width}&height=${height}&fps=${this.streamFps}&quality=${STREAM_QUALITY}`
-    );
+    /* The program pane shows what is going out - the texture OBS has already
+     * rendered, transitions included - so it needs no scene name and no new
+     * stream when the scene changes. */
+    const what = this.#isProgramView(surface)
+      ? 'view=program'
+      : `source=${encodeURIComponent(this.#sceneFor(surface.kind))}`;
+    return `api/preview.mjpg?${what}&width=${width}&height=${height}&fps=${this.streamFps}&quality=${STREAM_QUALITY}`;
+  }
+
+  #isProgramView(surface) {
+    return surface.kind === 'program' && Boolean(this.host?.previewProgram);
+  }
+
+  /*! Close every stream without tearing the panes down (hidden tab). */
+  #pauseStreams() {
+    for (const surface of this.surfaces) {
+      clearTimeout(surface.retryTimer);
+      surface.abort?.abort();
+      surface.abort = null;
+      surface.streamScene = null;
+      if (this.useNativeStream) surface.img?.removeAttribute('src');
+    }
   }
 
   #startStream(surface) {
@@ -294,28 +525,61 @@ export class PreviewPanel {
     }
 
     if (!this.useWebgpu || !surface.renderer) return;
+    if (document.hidden) return; // reopened by onVisibility
 
+    clearTimeout(surface.retryTimer);
     surface.abort?.abort();
-    surface.abort = new AbortController();
+    const abort = new AbortController();
+    surface.abort = abort;
     surface.scene = scene;
     surface.streamScene = scene;
-    surface.busy = false;
+    surface.pending = null;
+    surface.lastFrameAt = performance.now();
 
-    const url = this.#streamUrl(surface);
+    /* Whatever ends the stream - the host restarting, a proxy cutting it, a
+     * refusal - the pane must come back by itself, and without involving the
+     * rest of the page: a failed stream used to notify the store, which
+     * re-rendered the panel, which reopened the streams, which failed again. */
+    const retry = (reason) => {
+      if (surface.abort !== abort || !this.running || !this.surfaces.includes(surface)) return;
+      surface.lastError = reason;
+      surface.failures = (surface.failures ?? 0) + 1;
+      const wait = STREAM_RETRY_MS[Math.min(surface.failures, STREAM_RETRY_MS.length) - 1];
+      clearTimeout(surface.retryTimer);
+      surface.retryTimer = setTimeout(() => {
+        if (surface.abort === abort && this.running && this.surfaces.includes(surface)) this.#startStream(surface);
+      }, wait);
+    };
 
-    openMjpegStream(url, {
-      signal: surface.abort.signal,
-      onFrame: async (jpeg) => {
+    openMjpegStream(this.#streamUrl(surface), {
+      signal: abort.signal,
+      onFrame: (jpeg) => {
         surface.received = (surface.received ?? 0) + 1;
-        if (surface.busy) {
-          surface.dropped = (surface.dropped ?? 0) + 1;
-          return; // drop the frame rather than queue it
-        }
-        surface.busy = true;
+        surface.lastFrameAt = performance.now();
+        surface.failures = 0;
+        /* Only the newest frame is worth decoding: one that arrives while the
+         * decoder is busy replaces the one that was waiting. */
+        if (surface.pending) surface.dropped = (surface.dropped ?? 0) + 1;
+        surface.pending = jpeg;
+        if (!surface.busy) this.#drainFrames(surface);
+      },
+      onEnd: () => retry('stream ended'),
+      onError: (err) => retry(String(err?.message ?? err)),
+    });
+    this.#watchStall();
+  }
+
+  /*! Decode and draw whatever frame is waiting, newest first and only. */
+  async #drainFrames(surface) {
+    surface.busy = true;
+    try {
+      while (surface.pending && surface.renderer) {
+        const jpeg = surface.pending;
+        surface.pending = null;
         let bitmap = null;
         try {
           bitmap = await createImageBitmap(new Blob([jpeg], { type: 'image/jpeg' }));
-          if (!surface.renderer) throw new Error('renderer gone');
+          if (!surface.renderer) break;
           surface.lastSize = [bitmap.width, bitmap.height];
           surface.renderer.resize?.();
           surface.renderer.draw(bitmap);
@@ -331,13 +595,26 @@ export class PreviewPanel {
           const previous = surface.bitmap;
           surface.bitmap = bitmap;
           previous?.close?.();
-          surface.busy = false;
         }
-      },
-      onError: (err) => {
-        if (this.running) this.#report(err, true);
-      },
-    });
+      }
+    } finally {
+      surface.busy = false;
+    }
+  }
+
+  /*! Reopen a stream that has gone quiet: a connection can die without the
+   *  browser ever reporting an end or an error (a suspended laptop, a dropped
+   *  Wi-Fi link). One timer watches every pane. */
+  #watchStall() {
+    if (this.stallTimer) return;
+    this.stallTimer = setInterval(() => {
+      if (!this.running || !this.useWebgpu || document.hidden) return;
+      const now = performance.now();
+      for (const surface of this.surfaces) {
+        if (!surface.abort || !surface.streamScene) continue;
+        if (now - (surface.lastFrameAt ?? now) > STREAM_STALL_MS) this.#startStream(surface);
+      }
+    }, 1000);
   }
 
   /*!
@@ -350,6 +627,10 @@ export class PreviewPanel {
     setTimeout(() => {
       if (!this.useWebgpu || !this.surfaces.includes(surface)) return;
       if ((surface.drawn ?? 0) > 0) return;
+      /* No frames *received* is a stream that has nothing to show yet (no
+       * scene, host busy) - not a broken GPU, and not a reason to take the
+       * other pane down with it. */
+      if ((surface.received ?? 0) === 0) return;
       console.warn(
         '[WebMIX] WebGPU drew no frames; falling back to the screenshot preview',
         surface.lastError ?? ''
@@ -466,6 +747,9 @@ export class PreviewPanel {
 
   #beginDrag(surface, event) {
     if (this.locked || event.button !== 0) return;
+    /* In Studio Mode only the preview is edited; the program pane shows what
+     * is going out and cannot be touched, as on the desktop. */
+    if (this.store.state.studioMode && surface.kind === 'program') return;
     {
       const point = this.#scenePoint(surface, event);
       if (!point || !pointInCanvas(point, this.store.state.video)) return;
@@ -575,6 +859,10 @@ export class PreviewPanel {
     for (const surface of this.surfaces) {
       const { selection, pane, frame } = surface;
       if (!selection) continue;
+      if (this.store.state.studioMode && surface.kind === 'program') {
+        selection.hidden = true;
+        continue;
+      }
       this.#renderGuides(surface);
 
       const item = this.selected
@@ -669,10 +957,14 @@ export class PreviewPanel {
    */
   async measureDelivery(sampleMs = 1200) {
     if (!this.useNativeStream) return null;
+    let streams = 1;
     const read = async () => {
       try {
         const response = await fetch('api/status', { cache: 'no-store' });
         const data = await response.json();
+        /* The counter covers every open stream (two panes in Studio Mode,
+         * other tabs); the rate of one stream is what the user is asking. */
+        streams = Math.max(1, data?.preview?.streams ?? this.surfaces.length);
         return typeof data?.previewFrames === 'number' ? data.previewFrames : null;
       } catch {
         return null;
@@ -683,7 +975,7 @@ export class PreviewPanel {
     await new Promise((resolve) => setTimeout(resolve, sampleMs));
     const second = await read();
     if (second === null || second < first) return null;
-    this.deliveredFps = Math.round(((second - first) / (sampleMs / 1000)) * 10) / 10;
+    this.deliveredFps = Math.round(((second - first) / (sampleMs / 1000) / streams) * 10) / 10;
     return this.deliveredFps;
   }
 
@@ -717,7 +1009,12 @@ export class PreviewPanel {
        * in step; the stream has its own field, or a scene change would look
        * like a no-op and leave the <img> on the old scene. */
       const scene = this.#sceneFor(surface.kind);
-      if (scene !== surface.streamScene) this.#startStream(surface);
+      if (scene === surface.streamScene) continue;
+      if (surface.streamScene && scene && this.#isProgramView(surface) && surface.abort) {
+        surface.streamScene = scene;
+        continue;
+      }
+      this.#startStream(surface);
     }
   }
 
@@ -794,12 +1091,12 @@ export class PreviewPanel {
 
   setScaling(mode) {
     this.scaling = mode;
-    this.#applyScaling();
+    this.#resizeSurfaces();
   }
 
   setZoom(zoom) {
     this.zoom = Math.max(0.1, Math.min(8, zoom));
-    this.#applyScaling();
+    this.#resizeSurfaces();
   }
 
   zoomIn() {
@@ -848,19 +1145,22 @@ export class PreviewPanel {
         surface.pane.style.overflow = 'hidden';
       }
     }
+    this.#updateControls();
   }
 
   /** Rebuild the DOM (studio mode toggles, scene changes). */
   render() {
     const state = this.store.state;
     /* A reconnect means the previous streams died with the connection; they
-     * have to be started again, or the pane stays blank. */
-    if (state.connection?.status === 'connected') {
-      if (this.everConnected) {
-        for (const surface of this.surfaces) this.#startStream(surface);
-      }
-      this.everConnected = true;
+     * have to be started again, or the pane stays blank. Only the *change* to
+     * connected counts: this runs on every store update, and reopening the
+     * streams each time is what made the preview stutter whenever anything
+     * in a scene changed. */
+    const connected = state.connection?.status === 'connected';
+    if (connected && this.wasConnected === false) {
+      for (const surface of this.surfaces) this.#startStream(surface);
     }
+    this.wasConnected = connected;
     const expected = state.studioMode ? 2 : 1;
     if (this.surfaces.length !== expected) {
       this.#buildSurfaces();
@@ -870,6 +1170,8 @@ export class PreviewPanel {
     for (const surface of this.surfaces) {
       surface.scene = this.#sceneFor(surface.kind);
     }
+    this.#updateLabels();
+    this.#updateControls();
     this.#restartStreamsIfNeeded();
     for (const surface of this.surfaces) this.#ensureTransforms(surface);
     this.#renderSelection();
@@ -894,6 +1196,11 @@ export class PreviewPanel {
     this.running = true;
     this.#schedule(0);
     if (this.useWebgpu) {
+      /* stop() released the renderers; a restart needs new ones. */
+      if (this.surfaces.some((surface) => !surface.renderer && surface.stopped)) {
+        this.#buildSurfaces();
+        return;
+      }
       for (const surface of this.surfaces) this.#startStream(surface);
     }
   }
@@ -902,6 +1209,8 @@ export class PreviewPanel {
     this.running = false;
     clearTimeout(this.timer);
     this.timer = null;
+    clearInterval(this.stallTimer);
+    this.stallTimer = null;
     this.#stopStreams();
   }
 

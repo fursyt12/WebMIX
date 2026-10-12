@@ -93,7 +93,7 @@ an upgraded install on the native UI.
 | `GET /api/obs/events` | The **event stream**: Server-Sent Events, one `data:` frame per OBS event (`{eventType, eventIntent, eventData}`). Optional `?intents=<bitmask>`. |
 | `GET /obs-config.json` | obs-websocket port/password/enabled, read from OBS's config. |
 | `POST /api/shutdown` | Shuts OBS down. This is what **File > Exit** calls, so OBS can be stopped from the browser. Refused with 409 while a remux is running unless `force=1` is passed. |
-| `GET /api/preview.mjpg` | Live preview: JPEG frames as `multipart/x-mixed-replace` (`source`, `width`, `height`, `fps`, `quality`). |
+| `GET /api/preview.mjpg` | Live preview: JPEG frames as `multipart/x-mixed-replace`. `view=program` is the program output itself (transitions included); `source=<name>` renders one scene or source. Also `width`, `height`, `fps` (capped by OBS's own rate), `quality`. A client that cannot keep up gets fewer frames, never a backlog. |
 | `GET /api/preview.jpg` | A single preview frame. |
 | `GET /api/preview/multiview.mjpg\|.jpg` | Every scene composed into one grid (like OBS's Multiview), optionally pinned with `scenes=a,b,c`. |
 | `GET /api/properties/source\|filter\|transition` | The real `obs_properties_t` schema (labels, types, ranges, list items, groups, visibility) plus current values. |
@@ -358,7 +358,7 @@ so symlinks cannot escape) and all such attempts are refused with 404.
 
 | Backend | When | How |
 | --- | --- | --- |
-| **WebGPU** | OBS serves the UI (the default) and the browser exposes `navigator.gpu` | JPEG frames stream over `/api/preview.mjpg` at 60 fps and at the pane's size; `createImageBitmap` decodes them and a WGSL shader draws an aspect-fitted quad. Zoom/scaling are GPU transforms. |
+| **WebGPU** | OBS serves the UI (the default) and the browser exposes `navigator.gpu` | JPEG frames stream over `/api/preview.mjpg` at OBS's own frame rate and at the pane's size; `createImageBitmap` decodes them and a WGSL shader draws an aspect-fitted quad. Zoom/scaling are GPU transforms. |
 | **Native stream** | OBS serves the UI but the browser has no WebGPU (Firefox on Linux, for instance) | The same `/api/preview.mjpg` endpoint goes straight into an `<img>`. Browsers have decoded multipart JPEG themselves for decades, so there is **no JavaScript per frame at all** - this is what makes such a browser preview as smooth as the native window instead of a 15 fps slideshow. |
 | Screenshots | A page served by a plain static host, with no bridge to OBS | `GetSourceScreenshot` polling, painted into an `<img>`. Slow by nature; the panel's context menu names the active backend. |
 
@@ -393,6 +393,27 @@ array). That is the opposite of the CSS convention, so `colorIntToHex()` /
 and blue exchanged in every colour picker, and the live check pins it by reading
 a red source's colour back out of OBS.
 
+## Looking like the desktop window
+
+The page is meant to be the OBS main window, not a remote for it, so three
+things come from OBS itself rather than being re-made here:
+
+* **Language.** The host serves its own locale files (`GET /api/locale`), and
+  every label is looked up in them - by key (`t('Basic.Main.StartStreaming')`)
+  or by its English text (`tr()`, applied by the DOM helpers) - so the page
+  speaks whatever language OBS is running in, with OBS's wording. Names the
+  user chose are marked `raw` and never translated. See `src/i18n.js`.
+* **Icons.** `assets/icons/` is the Dark theme's artwork
+  (`frontend/data/themes/Dark`), and source rows use the icon type OBS reports
+  for the source kind.
+* **Layout and behaviour of the docks.** Scenes and Sources in the left column;
+  the preview with its zoom row; the context bar under it; Audio Mixer, Scene
+  Transitions and Controls below. Studio Mode puts Transition, the quick
+  transitions and the T-bar between the two panes. The mixer shows the strips
+  the desktop mixer would show (global, pinned, active, previewed; hidden and
+  inactive on request), from OBS's own state, so hiding or pinning a source
+  here does the same there.
+
 ## Known gaps (and why)
 
 These are limits of the *vocabulary*, not of the transport: the native control
@@ -414,9 +435,9 @@ whenever the page is served by OBS, which is the normal case.
 | Properties / filter settings | Solved when OBS serves the UI (`/api/properties/*` serialises `obs_properties_t`). With an external server the fallback key-based form is used. |
 | Hotkey bindings | The bridge rebinds them in OBS and persists them (`/api/hotkeys/bind`). Separately, the browser can capture a shortcut and send `TriggerHotkeyByName` - which is what works while OBS is headless, since a window-less OBS never receives key presses. |
 | Custom browser docks | Implemented, but a real browser enforces `X-Frame-Options` / CSP `frame-ancestors`, which OBS's embedded browser ignores. Sites that refuse framing (many do) cannot be docked outside OBS; the dock reports it. |
-| Scene collections / profiles | List/switch/create/remove work, but duplicate/rename/import/export do not. |
-| Undo/redo, source group/ungroup, copy/paste duplicate | Not exposed. |
-| "Hide in Mixer", mixer pin/lock | Not exposed. |
+| Scene collections / profiles | List, switch, create, duplicate, rename and remove work (the last three through OBS's own dialog-free paths). Import and export do not yet. |
+| Source group/ungroup, copy/paste duplicate | Not exposed. |
+| Undo/redo | The desktop's undo stack only records actions made in its own window, so there is nothing to undo for changes made from the page yet. |
 | Recordings / logs / config folders | Solved via `/api/files/*` (list, download, view). File > Remux Recordings is solved too: the queue and its worker run inside OBS (`/api/remux`), so a recording can be converted to MP4 from the browser. Uploading a log to obsproject.com, the Plugin Manager and the Auto-Configuration Wizard are still desktop-only. |
 | Always On Top, OS folders, tray | Apply to the desktop window, not the browser. |
 | Exit OBS | obs-websocket has no shutdown request, but the embedded server adds `POST /api/shutdown`, so File > Exit works when OBS serves the UI (the default). With an external server there is still no way. |

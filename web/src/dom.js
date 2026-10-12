@@ -7,12 +7,29 @@
  * event wiring.
  */
 
+/* The interface language. app.js installs i18n's `tr` here once the host's
+ * locale is known; until then (and in tests) text passes through unchanged.
+ * It lives in this module because this is where every label is created, so
+ * the page follows OBS's language without each call site asking for it. */
+let translate = null;
+
+export function setTranslator(fn) {
+  translate = typeof fn === 'function' ? fn : null;
+}
+
+const localized = (value, raw) => (translate && !raw && typeof value === 'string' ? translate(value) : value);
+
+/** Attributes that hold text a person reads. */
+const TEXT_ATTRIBUTES = new Set(['title', 'placeholder', 'aria-label', 'alt']);
+
 /**
  * Create an element.
  * @param {string} tag  tag name, optionally with `.class` and `#id` suffixes
  *                      e.g. 'div.obs-btn.primary#start'
  * @param {object|null} [props] attributes/properties; `class`, `style`,
- *                      `dataset`, `on` (event map) and `text` are special
+ *                      `dataset`, `on` (event map) and `text` are special.
+ *                      `raw: true` marks the text as a name the user chose
+ *                      (a scene, a source...), which is never translated
  * @param {...(Node|string|null|undefined|Array)} children
  */
 export function h(tag, props = null, ...children) {
@@ -24,13 +41,18 @@ export function h(tag, props = null, ...children) {
     else el.id = m[2];
   }
 
+  const raw = props?.raw === true;
+
   if (props) {
     for (const [key, value] of Object.entries(props)) {
       if (value === null || value === undefined || value === false) continue;
+      if (key === 'raw') continue;
       if (key === 'class' || key === 'className') {
         for (const c of String(value).split(/\s+/).filter(Boolean)) el.classList.add(c);
       } else if (key === 'text') {
-        el.textContent = String(value);
+        el.textContent = String(localized(value, raw));
+      } else if (TEXT_ATTRIBUTES.has(key)) {
+        el.setAttribute(key, String(localized(value, raw)));
       } else if (key === 'html') {
         el.innerHTML = value;
       } else if (key === 'style' && typeof value === 'object') {
@@ -51,15 +73,15 @@ export function h(tag, props = null, ...children) {
     }
   }
 
-  append(el, children);
+  append(el, children, raw);
   return el;
 }
 
 /** Append children, flattening arrays and skipping null/undefined/false. */
-export function append(parent, children) {
+export function append(parent, children, raw = false) {
   for (const child of children.flat(Infinity)) {
     if (child === null || child === undefined || child === false || child === '') continue;
-    parent.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
+    parent.appendChild(child instanceof Node ? child : document.createTextNode(String(localized(child, raw))));
   }
   return parent;
 }
@@ -78,9 +100,10 @@ export function clear(node) {
   return node;
 }
 
-/** Set text content only when it changed (avoids needless layout work). */
-export function setText(node, text) {
-  const next = text === null || text === undefined ? '' : String(text);
+/** Set text content only when it changed (avoids needless layout work).
+ *  Pass `raw` for a name the user chose, which must not be translated. */
+export function setText(node, text, raw = false) {
+  const next = text === null || text === undefined ? '' : String(localized(text, raw));
   if (node.textContent !== next) node.textContent = next;
   return node;
 }

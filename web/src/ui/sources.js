@@ -7,21 +7,28 @@
  * obs-websocket), the Add Source dialog and the source context menu.
  */
 import { h, reconcile, setText, setClass, clear, qs } from '../dom.js';
-import { iconButton, icon } from './icons.js';
+import { iconButton, icon, sourceIcon } from './icons.js';
 import { showContextMenu, prompt, confirm, openDialog, dialogButtons } from './dialog.js';
 import { Topic, selectors } from '../store.js';
 
-const SOURCE_ICON_BY_KIND = [
-  [/browser/, 'list'],
-  [/image|slideshow/, 'camera'],
-  [/text|freetype/, 'properties'],
-  [/monitor_capture|screen_capture|display_capture|window_capture|game_capture|v4l2|av_capture/, 'camera'],
-  [/ffmpeg|media|vlc/, 'play'],
-  [/audio|wasapi|pulse|alsa|coreaudio|jack|mic/, 'mic'],
-  [/color|colour/, 'grid'],
+/* OBS's icon type for a source kind, guessed from the kind's id. Only used
+ * when the host does not say (obs-websocket has no field for it). */
+const ICON_TYPE_BY_KIND = [
+  [/browser/, 'browser'],
+  [/slideshow/, 'slideshow'],
+  [/image/, 'image'],
+  [/text|freetype/, 'text'],
+  [/window_capture|xcomposite/, 'windowCapture'],
+  [/game_capture/, 'gameCapture'],
+  [/monitor_capture|screen_capture|display_capture|pipewire/, 'desktopCapture'],
+  [/v4l2|av_capture|dshow|camera/, 'camera'],
+  [/ffmpeg|media|vlc/, 'media'],
+  [/output_capture|wasapi_output|audio_output/, 'audioOutput'],
+  [/audio|wasapi|pulse|alsa|coreaudio|jack|mic/, 'audioInput'],
+  [/color|colour/, 'color'],
 ];
 
-const iconForKind = (kind) => SOURCE_ICON_BY_KIND.find(([re]) => re.test(kind ?? ''))?.[1] ?? 'folder';
+const iconTypeForKind = (kind) => ICON_TYPE_BY_KIND.find(([re]) => re.test(kind ?? ''))?.[1] ?? 'default';
 
 export class SourcesPanel {
   constructor({ store, api, onStatus, onSelectSource }) {
@@ -40,12 +47,12 @@ export class SourcesPanel {
 
     this.toolbar = h('div.obs-list-toolbar', { role: 'toolbar' }, [
       iconButton('plus', { title: 'Add Source', onClick: () => this.addSource() }),
-      iconButton('minus', { title: 'Remove Source', onClick: () => this.removeSource() }),
+      iconButton('trash', { title: 'Remove Selected Source(s)', onClick: () => this.removeSource() }),
       h('div.obs-toolbar-sep'),
-      iconButton('properties', { title: 'Source Properties', onClick: () => this.openProperties() }),
+      iconButton('gear', { title: 'Open Source Properties', onClick: () => this.openProperties() }),
       h('div.obs-toolbar-sep'),
-      iconButton('up', { title: 'Move Source Up', onClick: () => this.move(-1) }),
-      iconButton('down', { title: 'Move Source Down', onClick: () => this.move(1) }),
+      iconButton('up', { title: 'Move Source(s) Up', onClick: () => this.move(-1) }),
+      iconButton('down', { title: 'Move Source(s) Down', onClick: () => this.move(1) }),
     ]);
 
     this.el = h('div.obs-panel.obs-sources-panel', {}, [this.list, this.toolbar]);
@@ -182,7 +189,7 @@ export class SourcesPanel {
           const row = h(
             'li.obs-list-item',
             { dataset: { kind: entry.kind }, role: 'option', title: entry.kind },
-            [icon(iconForKind(entry.kind)), h('span.obs-list-label', { text: entry.name })]
+            [sourceIcon(entry.icon ?? iconTypeForKind(entry.kind)), h('span.obs-list-label', { text: entry.name, raw: true })]
           );
           if (entry.kind === selectedKind) row.classList.add('is-selected');
           row.addEventListener('click', () => {
@@ -204,7 +211,7 @@ export class SourcesPanel {
         }
         for (const name of existingInputs) {
           const row = h('li.obs-list-item', { dataset: { name }, role: 'option' }, [
-            h('span.obs-list-label', { text: name }),
+            h('span.obs-list-label', { text: name, raw: true }),
           ]);
           if (name === selectedExisting) row.classList.add('is-selected');
           row.addEventListener('click', () => {
@@ -498,25 +505,27 @@ export class SourcesPanel {
       role: 'option',
       tabindex: '-1',
     });
+    /* The desktop row: type icon, name, then visibility and lock at the
+     * right edge. */
     row.append(
+      h('span.obs-source-icon'),
+      h('span.obs-list-label', { text: item.sourceName, raw: true }),
       h('button.obs-icon-btn.obs-source-toggle', {
         type: 'button',
         dataset: { toggle: 'visible' },
-        title: 'Toggle visibility',
+        title: 'Visibility',
       }),
       h('button.obs-icon-btn.obs-source-toggle', {
         type: 'button',
         dataset: { toggle: 'lock' },
-        title: 'Lock sources',
-      }),
-      h('span.obs-source-icon'),
-      h('span.obs-list-label', { text: item.sourceName })
+        title: 'Lock',
+      })
     );
     return row;
   }
 
   #updateRow(row, item, state) {
-    setText(row.querySelector('.obs-list-label'), item.sourceName);
+    setText(row.querySelector('.obs-list-label'), item.sourceName, true);
     row.dataset.sourceName = item.sourceName;
     row.dataset.sceneItemId = String(item.sceneItemId);
     setClass(row, 'is-selected', this.selected === item.sourceName);
@@ -526,18 +535,21 @@ export class SourcesPanel {
 
     const visibleBtn = row.querySelector('[data-toggle="visible"]');
     clear(visibleBtn);
-    visibleBtn.appendChild(icon(item.sceneItemEnabled ? 'eye' : 'eyeOff', 14));
-    visibleBtn.title = 'Toggle visibility';
+    visibleBtn.appendChild(icon(item.sceneItemEnabled ? 'eye' : 'eyeOff', 16));
 
     const lockBtn = row.querySelector('[data-toggle="lock"]');
     clear(lockBtn);
-    lockBtn.appendChild(icon(item.sceneItemLocked ? 'lock' : 'unlock', 14));
-    lockBtn.title = 'Lock sources';
+    lockBtn.appendChild(icon(item.sceneItemLocked ? 'lock' : 'unlock', 16));
 
     const iconEl = row.querySelector('.obs-source-icon');
+    /* OBS names the icon; the kind is only a guess for hosts that do not. */
     const kind = state.inputs[item.sourceName]?.inputKind;
-    clear(iconEl);
-    iconEl.appendChild(icon(iconForKind(kind), 16));
+    const iconName = item.sourceIcon ?? ICON_TYPE_BY_KIND.find(([re]) => re.test(kind ?? ''))?.[1] ?? 'default';
+    if (iconEl.dataset.icon !== iconName) {
+      iconEl.dataset.icon = iconName;
+      clear(iconEl);
+      iconEl.appendChild(sourceIcon(iconName, 16));
+    }
   }
 
   /** Select a source by name (used by the source toolbar / mixer). */
