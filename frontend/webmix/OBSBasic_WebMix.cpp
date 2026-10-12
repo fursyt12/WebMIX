@@ -22,9 +22,12 @@
  *
  * The web UI performs its own confirmation prompts before calling these. */
 
+#include <models/SceneCollection.hpp>
 #include <utility/QuickTransition.hpp>
 #include <widgets/OBSBasic.hpp>
 
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QListWidget>
 #include <QString>
 #include <QStringList>
@@ -32,6 +35,7 @@
 #include <obs.hpp>
 
 #include <algorithm>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -178,4 +182,166 @@ QStringList OBSBasic::WebMixTransitionNames() const
 		}
 	}
 	return names;
+}
+
+/* ----------------------------------------------------------- studio mode --- */
+
+QJsonObject OBSBasic::WebMixStudioState()
+{
+	QJsonArray quick;
+	for (QuickTransition &qt : quickTransitions) {
+		QJsonObject entry;
+		entry["id"] = qt.id;
+		entry["duration"] = qt.duration;
+		entry["fadeToBlack"] = qt.fadeToBlack;
+		const bool fixed = qt.source && obs_transition_fixed(qt.source);
+		entry["fixed"] = fixed;
+		/* The label of the desktop button: "Fade (300ms)", "Cut". */
+		QString name = qt.fadeToBlack ? QTStr("FadeToBlack")
+					      : QString::fromUtf8(qt.source ? obs_source_get_name(qt.source) : "");
+		entry["transitionName"] = name;
+		if (!fixed) {
+			name += QStringLiteral(" (%1ms)").arg(qt.duration);
+		}
+		entry["name"] = name;
+		quick.append(entry);
+	}
+
+	QJsonObject state;
+	state["quickTransitions"] = quick;
+	state["duplicateScene"] = sceneDuplicationMode;
+	state["duplicateSources"] = editPropertiesMode;
+	state["swapScenes"] = swapScenesMode;
+	return state;
+}
+
+bool OBSBasic::WebMixTriggerQuickTransition(int id)
+{
+	if (!previewProgramMode || !GetQuickTransition(id)) {
+		return false;
+	}
+	TriggerQuickTransition(id);
+	return true;
+}
+
+bool OBSBasic::WebMixSetStudioOption(const QString &name, bool enabled)
+{
+	/* The same three toggles as the menu button next to "Transition"; the
+	 * two duplication modes re-seat the program scene, exactly as there. */
+	const auto reseatProgram = [this]() {
+		OBSSource actualScene = OBSGetStrongRef(programScene);
+		if (actualScene) {
+			TransitionToScene(actualScene, true);
+		}
+	};
+
+	if (name == QLatin1String("swapScenes")) {
+		swapScenesMode = enabled;
+	} else if (name == QLatin1String("duplicateScene")) {
+		if (sceneDuplicationMode != enabled) {
+			sceneDuplicationMode = enabled;
+			reseatProgram();
+		}
+	} else if (name == QLatin1String("duplicateSources")) {
+		if (editPropertiesMode != enabled) {
+			editPropertiesMode = enabled;
+			reseatProgram();
+		}
+	} else {
+		return false;
+	}
+	return true;
+}
+
+/* ------------------------------------------ profiles and scene collections --- */
+
+namespace {
+
+/*! Run one of OBSBasic's Setup* functions, which report a bad name by
+ *  throwing, and turn that into the error text the page shows. */
+template<typename Operation> bool Guarded(QString &error, Operation operation)
+{
+	try {
+		operation();
+		return true;
+	} catch (const std::invalid_argument &exception) {
+		error = QString::fromUtf8(exception.what());
+	} catch (const std::logic_error &exception) {
+		error = QString::fromUtf8(exception.what());
+	}
+	blog(LOG_WARNING, "[WebMIX] %s", qUtf8Printable(error));
+	return false;
+}
+
+} // namespace
+
+bool OBSBasic::WebMixDuplicateProfile(const QString &name, QString &error)
+{
+	if (name.isEmpty() || GetProfileByName(name.toStdString())) {
+		error = QStringLiteral("A profile with that name already exists.");
+		return false;
+	}
+	return Guarded(error, [&]() { SetupDuplicateProfile(name.toStdString()); });
+}
+
+bool OBSBasic::WebMixRenameProfile(const QString &name, QString &error)
+{
+	if (name.isEmpty() || GetProfileByName(name.toStdString())) {
+		error = QStringLiteral("A profile with that name already exists.");
+		return false;
+	}
+	return Guarded(error, [&]() { SetupRenameProfile(name.toStdString()); });
+}
+
+bool OBSBasic::WebMixDuplicateSceneCollection(const QString &name, QString &error)
+{
+	if (name.isEmpty() || GetSceneCollectionByName(name.toStdString())) {
+		error = QStringLiteral("A scene collection with that name already exists.");
+		return false;
+	}
+	return Guarded(error, [&]() { SetupDuplicateSceneCollection(name.toStdString()); });
+}
+
+bool OBSBasic::WebMixRenameSceneCollection(const QString &name, QString &error)
+{
+	if (name.isEmpty() || GetSceneCollectionByName(name.toStdString())) {
+		error = QStringLiteral("A scene collection with that name already exists.");
+		return false;
+	}
+	return Guarded(error, [&]() { SetupRenameSceneCollection(name.toStdString()); });
+}
+
+bool OBSBasic::WebMixRemoveSceneCollection(QString &error)
+{
+	if (collections.size() < 2) {
+		error = QStringLiteral("The last scene collection cannot be removed.");
+		return false;
+	}
+	/* The desktop action with its confirmation skipped: the page asked. */
+	on_actionRemoveSceneCollection_triggered(true);
+	return true;
+}
+
+bool OBSBasic::WebMixRemoveProfile(const QString &name, QString &error)
+{
+	if (!GetProfileByName(name.toStdString())) {
+		error = QStringLiteral("No profile was found by that name.");
+		return false;
+	}
+	if (profiles.size() < 2) {
+		error = QStringLiteral("The only remaining profile cannot be removed.");
+		return false;
+	}
+
+	/* DeleteProfile() asks for confirmation when the profile is the current
+	 * one - in a message box on a window nobody can see, which would leave
+	 * the request (and OBS's UI thread) waiting for an answer for ever. The
+	 * page has asked already, so take the confirmed path. */
+	const std::string current = config_get_string(App()->GetUserConfig(), "Basic", "Profile");
+	if (current == name.toStdString()) {
+		on_actionRemoveProfile_triggered(true);
+	} else {
+		DeleteProfile(name);
+	}
+	return true;
 }

@@ -201,7 +201,12 @@ void Stop()
 		return;
 	}
 	Started() = false;
-	UnregisterEventSources();
+	/* Everything the bridge hooked lives in libobs; once that is gone there
+	 * is nothing left to unhook, and asking would crash. */
+	if (obs_initialized()) {
+		UnregisterEventSources();
+	}
+	ReleaseGeneralState();
 	Sinks().clear();
 }
 
@@ -288,6 +293,21 @@ struct Search {
 	obs_source_t *found;
 };
 
+/*! Hand a reference a search took to the caller, without taking a second one.
+ *
+ * OBSSource adds its own reference when it is built from a pointer. The
+ * searches below already hold one (they have to: the source could go away the
+ * moment the enumeration ends), so wrapping that pointer directly left one
+ * reference behind on every lookup - and a source that has been looked up even
+ * once could never be destroyed. Removed sources kept running, and at exit the
+ * audio inputs outlived libobs and crashed in their capture threads. */
+OBSSource Adopt(obs_source_t *referenced)
+{
+	OBSSource source(referenced);
+	obs_source_release(referenced);
+	return source;
+}
+
 bool Matches(obs_source_t *source, const QString &key, bool byUuid)
 {
 	if (!source) {
@@ -331,7 +351,7 @@ OBSSource FindAny(const QString &nameOrUuid, bool *isScene = nullptr)
 			if (isScene) {
 				*isScene = false;
 			}
-			return OBSSource(search.found);
+			return Adopt(search.found);
 		}
 
 		obs_enum_scenes(SearchCallback, &search);
@@ -339,7 +359,7 @@ OBSSource FindAny(const QString &nameOrUuid, bool *isScene = nullptr)
 			if (isScene) {
 				*isScene = true;
 			}
-			return OBSSource(search.found);
+			return Adopt(search.found);
 		}
 
 		/* Transitions are private sources and are only visible through the
@@ -358,7 +378,7 @@ OBSSource FindAny(const QString &nameOrUuid, bool *isScene = nullptr)
 			if (isScene) {
 				*isScene = false;
 			}
-			return OBSSource(search.found);
+			return Adopt(search.found);
 		}
 	}
 
@@ -426,7 +446,7 @@ OBSSource FindFilter(const QString &sourceName, const QString &filterNameOrUuid)
 		search.byUuid = true;
 		obs_source_enum_filters(source, callback, &search);
 	}
-	return OBSSource(search.found);
+	return Adopt(search.found);
 }
 
 obs_scene_t *SceneOf(obs_source_t *source)
@@ -478,17 +498,66 @@ QJsonObject ObsDataToJson(obs_data_t *data)
 
 OBSData ObsDataFromJson(const QJsonObject &object)
 {
-	OBSData data = obs_data_create();
-	if (object.isEmpty()) {
-		return data;
+	/* The creating calls return an owned reference and OBSData takes its own,
+	 * so the created one has to be given up again - AutoRelease does that. */
+	OBSDataAutoRelease data;
+	if (!object.isEmpty()) {
+		const QByteArray text = QJsonDocument(object).toJson(QJsonDocument::Compact);
+		data = obs_data_create_from_json(text.constData());
 	}
-	const QByteArray text = QJsonDocument(object).toJson(QJsonDocument::Compact);
-	obs_data_t *parsed = obs_data_create_from_json(text.constData());
-	if (parsed) {
-		obs_data_release(data);
-		return OBSData(parsed);
+	if (!data) {
+		data = obs_data_create();
 	}
-	return data;
+	return OBSData(data.Get());
+}
+
+QString IconTypeName(const char *sourceId)
+{
+	switch (sourceId ? obs_source_get_icon_type(sourceId) : OBS_ICON_TYPE_UNKNOWN) {
+	case OBS_ICON_TYPE_IMAGE:
+		return QStringLiteral("image");
+	case OBS_ICON_TYPE_COLOR:
+		return QStringLiteral("color");
+	case OBS_ICON_TYPE_SLIDESHOW:
+		return QStringLiteral("slideshow");
+	case OBS_ICON_TYPE_AUDIO_INPUT:
+		return QStringLiteral("audioInput");
+	case OBS_ICON_TYPE_AUDIO_OUTPUT:
+		return QStringLiteral("audioOutput");
+	case OBS_ICON_TYPE_DESKTOP_CAPTURE:
+		return QStringLiteral("desktopCapture");
+	case OBS_ICON_TYPE_WINDOW_CAPTURE:
+		return QStringLiteral("windowCapture");
+	case OBS_ICON_TYPE_GAME_CAPTURE:
+		return QStringLiteral("gameCapture");
+	case OBS_ICON_TYPE_CAMERA:
+		return QStringLiteral("camera");
+	case OBS_ICON_TYPE_TEXT:
+		return QStringLiteral("text");
+	case OBS_ICON_TYPE_MEDIA:
+		return QStringLiteral("media");
+	case OBS_ICON_TYPE_BROWSER:
+		return QStringLiteral("browser");
+	case OBS_ICON_TYPE_PROCESS_AUDIO_OUTPUT:
+		return QStringLiteral("processAudioOutput");
+	default:
+		return QStringLiteral("default");
+	}
+}
+
+QString SourceIconName(obs_source_t *source)
+{
+	if (!source) {
+		return QStringLiteral("default");
+	}
+	/* A group is a scene to libobs, but not to the person looking at it. */
+	if (obs_source_is_group(source)) {
+		return QStringLiteral("group");
+	}
+	if (obs_source_get_type(source) == OBS_SOURCE_TYPE_SCENE) {
+		return QStringLiteral("scene");
+	}
+	return IconTypeName(obs_source_get_id(source));
 }
 
 QJsonObject SceneItemTransformJson(obs_sceneitem_t *item)
@@ -562,6 +631,7 @@ QJsonArray SceneItemArray(obs_scene_t *scene, bool basic)
 			entry["sourceName"] = source ? QString::fromUtf8(obs_source_get_name(source)) : QString();
 			entry["sourceUuid"] = source ? QString::fromUtf8(obs_source_get_uuid(source)) : QString();
 			entry["sourceType"] = source ? static_cast<int>(obs_source_get_type(source)) : 0;
+			entry["sourceIcon"] = SourceIconName(source);
 			if (source && obs_source_get_type(source) == OBS_SOURCE_TYPE_INPUT) {
 				entry["inputKind"] = QString::fromUtf8(obs_source_get_id(source));
 			} else {

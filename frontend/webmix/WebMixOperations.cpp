@@ -28,6 +28,8 @@
 
 #include "WebMixBridge.hpp"
 
+#include <OBSApp.hpp>
+#include <utility/platform.hpp>
 #include <widgets/OBSBasic.hpp>
 
 #include <obs-frontend-api.h>
@@ -38,6 +40,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonObject>
+#include <QFile>
 #include <QString>
 #include <QVector>
 
@@ -261,6 +264,147 @@ bool RemoveTransition(const QString &name, QString &error)
 		return false;
 	}
 	return true;
+}
+
+QJsonObject StudioState()
+{
+	OBSBasic *main = OBSBasic::Get();
+	return main ? main->WebMixStudioState() : QJsonObject();
+}
+
+bool TriggerQuickTransition(int id)
+{
+	OBSBasic *main = OBSBasic::Get();
+	return main && main->WebMixTriggerQuickTransition(id);
+}
+
+bool SetStudioOption(const QString &name, bool enabled)
+{
+	OBSBasic *main = OBSBasic::Get();
+	return main && main->WebMixSetStudioOption(name, enabled);
+}
+
+bool DuplicateProfile(const QString &name, QString &error)
+{
+	OBSBasic *main = OBSBasic::Get();
+	return main && main->WebMixDuplicateProfile(name, error);
+}
+
+bool RenameProfile(const QString &name, QString &error)
+{
+	OBSBasic *main = OBSBasic::Get();
+	return main && main->WebMixRenameProfile(name, error);
+}
+
+bool RemoveProfile(const QString &name, QString &error)
+{
+	OBSBasic *main = OBSBasic::Get();
+	return main && main->WebMixRemoveProfile(name, error);
+}
+
+bool DuplicateSceneCollection(const QString &name, QString &error)
+{
+	OBSBasic *main = OBSBasic::Get();
+	return main && main->WebMixDuplicateSceneCollection(name, error);
+}
+
+bool RenameSceneCollection(const QString &name, QString &error)
+{
+	OBSBasic *main = OBSBasic::Get();
+	return main && main->WebMixRenameSceneCollection(name, error);
+}
+
+bool RemoveSceneCollection(QString &error)
+{
+	OBSBasic *main = OBSBasic::Get();
+	return main && main->WebMixRemoveSceneCollection(error);
+}
+
+namespace {
+
+/*! Read one of OBS's locale files (`Key="Value"` per line) into `out`.
+ *
+ * The same grammar the text lookup in libobs reads: a value may be quoted, in
+ * which case it runs to the closing quote (across lines if need be) and may
+ * contain \n, \t, \" and \\. */
+void ReadLocaleFile(const char *relative, QJsonObject &out)
+{
+	std::string path;
+	if (!GetDataFilePath(relative, path)) {
+		return;
+	}
+	QFile file(QString::fromStdString(path));
+	if (!file.open(QIODevice::ReadOnly)) {
+		return;
+	}
+	const QString text = QString::fromUtf8(file.readAll());
+	const qsizetype length = text.size();
+
+	qsizetype at = 0;
+	while (at < length) {
+		qsizetype lineEnd = text.indexOf(QLatin1Char('\n'), at);
+		if (lineEnd < 0) {
+			lineEnd = length;
+		}
+		const qsizetype equals = text.indexOf(QLatin1Char('='), at);
+		if (equals < 0 || equals > lineEnd || text.at(at) == QLatin1Char('#')) {
+			at = lineEnd + 1;
+			continue;
+		}
+		const QString key = text.mid(at, equals - at).trimmed();
+
+		qsizetype cursor = equals + 1;
+		QString value;
+		if (cursor < length && text.at(cursor) == QLatin1Char('"')) {
+			cursor++;
+			while (cursor < length && text.at(cursor) != QLatin1Char('"')) {
+				QChar character = text.at(cursor);
+				if (character == QLatin1Char('\\') && cursor + 1 < length) {
+					const QChar escaped = text.at(++cursor);
+					character = escaped == QLatin1Char('n')   ? QLatin1Char('\n')
+						    : escaped == QLatin1Char('t') ? QLatin1Char('\t')
+						    : escaped == QLatin1Char('r') ? QLatin1Char('\r')
+										  : escaped;
+				}
+				value.append(character);
+				cursor++;
+			}
+			lineEnd = text.indexOf(QLatin1Char('\n'), cursor);
+			if (lineEnd < 0) {
+				lineEnd = length;
+			}
+		} else {
+			value = text.mid(cursor, lineEnd - cursor).trimmed();
+		}
+
+		if (!key.isEmpty()) {
+			out[key] = value;
+		}
+		at = lineEnd + 1;
+	}
+}
+
+} // namespace
+
+QJsonObject LocaleStrings()
+{
+	const QString locale = QString::fromUtf8(App()->GetLocale());
+
+	QJsonObject english;
+	ReadLocaleFile("locale/en-US.ini", english);
+
+	/* A translation only has to cover what it changes; everything else is
+	 * English, exactly as OBS itself falls back. */
+	QJsonObject strings = english;
+	if (locale != QLatin1String("en-US")) {
+		ReadLocaleFile(QStringLiteral("locale/%1.ini").arg(locale).toUtf8().constData(), strings);
+	}
+
+	QJsonObject result;
+	result["locale"] = locale;
+	result["english"] = english;
+	result["strings"] = strings;
+	return result;
 }
 
 /* Encoder choices for the Simple output mode, mirroring the option set and the

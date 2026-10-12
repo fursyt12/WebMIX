@@ -82,6 +82,9 @@ private:
 		      const char *type = "text/plain; charset=utf-8");
 	void SendError(QTcpSocket *socket, int status, const QString &reason);
 
+	/*! Whether Start() hooked OBS's exit event; see there. */
+	bool exitHooked = false;
+
 	QTcpServer *server = nullptr;
 	QString webRoot;
 	QString url;

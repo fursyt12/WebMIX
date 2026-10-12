@@ -37,6 +37,8 @@ namespace WebMixControl {
 void AddHandler(const char *requestType, Handler handler);
 
 void RegisterGeneralHandlers();
+/*! Frees what the general handlers keep between requests. */
+void ReleaseGeneralState();
 void RegisterConfigHandlers();
 void RegisterSceneHandlers();
 void RegisterSceneItemHandlers();
@@ -79,6 +81,11 @@ obs_scene_t *SceneOf(obs_source_t *source);
 obs_sceneitem_t *FindSceneItem(obs_scene_t *scene, const QJsonObject &data);
 
 /* ---- serialization ------------------------------------------------------ */
+
+/*! The name of the list icon OBS shows for a source kind / a source, as the
+ *  page's icon table knows it ("browser", "audioInput", "scene", ...). */
+QString IconTypeName(const char *sourceId);
+QString SourceIconName(obs_source_t *source);
 
 QJsonObject SceneItemTransformJson(obs_sceneitem_t *item);
 QJsonArray SceneItemArray(obs_scene_t *scene, bool basic = false);

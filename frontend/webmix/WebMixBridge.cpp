@@ -337,7 +337,8 @@ QJsonObject BuildPayload(obs_source_t *source, const QString &sourceName, const 
 	}
 
 	obs_properties_t *properties = obs_source_properties(source);
-	obs_data_t *settings = obs_source_get_settings(source);
+	/* get_settings returns an owned reference. */
+	OBSDataAutoRelease settings = obs_source_get_settings(source);
 
 	if (properties && settings) {
 		obs_properties_apply_settings(properties, settings);

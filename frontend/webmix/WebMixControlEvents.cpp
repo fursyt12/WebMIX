@@ -53,6 +53,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QString>
+#include <QThread>
 #include <QTimer>
 
 #include <algorithm>
@@ -143,6 +144,19 @@ QHash<obs_source_t *, Meter *> &Meters()
 	return meters;
 }
 
+/*! Guards the table itself (not the levels - each meter has its own mutex).
+ *
+ * A source is destroyed on whichever thread drops its last reference, which
+ * for libobs is usually its own destruction thread, so the entry for it is
+ * removed there while the main thread's timer walks the table. Holding this
+ * across that walk is also what keeps the source pointers in it valid: the
+ * destroying thread cannot get past DetachMeter() until the walk is over. */
+QMutex &MetersLock()
+{
+	static QMutex lock;
+	return lock;
+}
+
 void ResetMeterLocked(Meter *meter)
 {
 	std::fill(std::begin(meter->magnitude), std::end(meter->magnitude), 0.0f);
@@ -153,12 +167,9 @@ void ResetMeterLocked(Meter *meter)
 /*! Publish every metered input's levels.  Runs on the main thread. */
 void EmitInputVolumeMeters()
 {
-	if (Meters().isEmpty()) {
-		return;
-	}
-
 	const uint64_t now = os_gettime_ns();
 	QJsonArray inputs;
+	QMutexLocker tableLocker(&MetersLock());
 	for (auto it = Meters().cbegin(); it != Meters().cend(); ++it) {
 		obs_source_t *source = it.key();
 		Meter *meter = it.value();
@@ -185,6 +196,11 @@ void EmitInputVolumeMeters()
 		entry["inputLevelsMul"] = levels;
 		inputs.append(entry);
 	}
+	tableLocker.unlock();
+
+	if (inputs.isEmpty()) {
+		return;
+	}
 
 	QJsonObject eventData;
 	eventData["inputs"] = inputs;
@@ -200,6 +216,21 @@ QTimer *MeterTimer()
 		QObject::connect(timer, &QTimer::timeout, timer, [] { EmitInputVolumeMeters(); });
 	}
 	return timer;
+}
+
+/*! Start the publishing timer from whichever thread noticed it is needed: a
+ *  QTimer may only be started (or created) on the thread that owns it. */
+void StartMeterTimer()
+{
+	QCoreApplication *app = QCoreApplication::instance();
+	if (!app) {
+		return;
+	}
+	if (QThread::currentThread() != app->thread()) {
+		QMetaObject::invokeMethod(app, [] { StartMeterTimer(); }, Qt::QueuedConnection);
+		return;
+	}
+	MeterTimer()->start();
 }
 
 void AudioCapture(void *param, obs_source_t *, const struct audio_data *data, bool muted)
@@ -258,32 +289,40 @@ void AudioCapture(void *param, obs_source_t *, const struct audio_data *data, bo
 
 void AttachMeter(obs_source_t *source)
 {
-	if (!source || Meters().contains(source)) {
-		return;
-	}
 	/* Only sources that actually carry audio are worth metering. */
-	if ((obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) == 0) {
+	if (!source || (obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) == 0) {
 		return;
 	}
 
 	auto *meter = new Meter();
 	meter->volume = obs_source_get_volume(source);
-	Meters().insert(source, meter);
+	{
+		QMutexLocker locker(&MetersLock());
+		if (Meters().contains(source)) {
+			delete meter;
+			return;
+		}
+		Meters().insert(source, meter);
+	}
 	obs_source_add_audio_capture_callback(source, AudioCapture, meter);
-	MeterTimer()->start();
+	StartMeterTimer();
 }
 
 void DetachMeter(obs_source_t *source)
 {
-	Meter *meter = Meters().take(source);
+	Meter *meter = nullptr;
+	{
+		QMutexLocker locker(&MetersLock());
+		meter = Meters().take(source);
+	}
 	if (!meter) {
 		return;
 	}
+	/* Removing the callback waits for one that is running, so the meter is
+	 * no longer in use when it is deleted.  The timer is left alone: this may
+	 * be libobs's destruction thread, and an idle tick costs nothing. */
 	obs_source_remove_audio_capture_callback(source, AudioCapture, meter);
 	delete meter;
-	if (Meters().isEmpty()) {
-		MeterTimer()->stop();
-	}
 }
 
 /* --------------------------------------------------------- source events -- */
@@ -341,9 +380,12 @@ HANDLE(OnInputVolume)
 	}
 
 	const float volume = obs_source_get_volume(source);
-	if (Meter *meter = Meters().value(source)) {
-		QMutexLocker locker(&meter->mutex);
-		meter->volume = volume;
+	{
+		QMutexLocker tableLocker(&MetersLock());
+		if (Meter *meter = Meters().value(source)) {
+			QMutexLocker locker(&meter->mutex);
+			meter->volume = volume;
+		}
 	}
 
 	QJsonObject eventData;
@@ -891,6 +933,12 @@ void OnFrontendEvent(enum obs_frontend_event event, void *)
 	}
 	case OBS_FRONTEND_EVENT_PREVIEW_SCENE_CHANGED: {
 		OBSSourceAutoRelease scene = obs_frontend_get_current_preview_scene();
+		/* The frontend also raises this while Studio Mode is being switched,
+		 * when there is no preview scene. An event with an empty name told
+		 * the page its preview was "", and the Preview pane went blank. */
+		if (!scene) {
+			break;
+		}
 		QJsonObject eventData;
 		eventData["sceneName"] = NameOf(scene);
 		eventData["sceneUuid"] = UuidOf(scene);
@@ -919,9 +967,20 @@ void OnFrontendEvent(enum obs_frontend_event event, void *)
 		break;
 	}
 
-	case OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED:
+	case OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED: {
 		Emit(QStringLiteral("StudioModeStateChanged"), QJsonObject{{"studioModeEnabled", true}}, Intent::Ui);
+		/* ...and say what it is previewing. Only the client that asked for
+		 * Studio Mode goes on to query that; every other one (a second tab,
+		 * a page that did not press the button) learns it from here. */
+		OBSSourceAutoRelease scene = obs_frontend_get_current_preview_scene();
+		if (scene) {
+			QJsonObject eventData;
+			eventData["sceneName"] = NameOf(scene);
+			eventData["sceneUuid"] = UuidOf(scene);
+			Emit(QStringLiteral("CurrentPreviewSceneChanged"), eventData, Intent::Scenes);
+		}
 		break;
+	}
 	case OBS_FRONTEND_EVENT_STUDIO_MODE_DISABLED:
 		Emit(QStringLiteral("StudioModeStateChanged"), QJsonObject{{"studioModeEnabled", false}}, Intent::Ui);
 		break;
@@ -1206,11 +1265,15 @@ void UnregisterEventSources()
 	obs_enum_scenes(disconnectAll, nullptr);
 
 	/* The meters own audio capture callbacks; drop them all. */
-	for (auto it = Meters().begin(); it != Meters().end(); ++it) {
+	QHash<obs_source_t *, Meter *> remaining;
+	{
+		QMutexLocker locker(&MetersLock());
+		remaining.swap(Meters());
+	}
+	for (auto it = remaining.begin(); it != remaining.end(); ++it) {
 		obs_source_remove_audio_capture_callback(it.key(), AudioCapture, it.value());
 		delete it.value();
 	}
-	Meters().clear();
 	MeterTimer()->stop();
 }
 

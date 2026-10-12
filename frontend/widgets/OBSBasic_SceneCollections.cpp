@@ -1503,6 +1503,10 @@ retryScene:
 
 	if (!App()->IsMissingFilesCheckDisabled()) {
 		ShowMissingFilesDialog(files);
+	} else {
+		/* The dialog owns the list when it is shown; when the check is
+		 * disabled (always, in web mode) nobody does. */
+		obs_missing_files_destroy(files);
 	}
 
 	disableSaving--;

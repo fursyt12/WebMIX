@@ -482,7 +482,8 @@ void HandleCreateScene(const QJsonObject &data, Response &response)
 		return;
 	}
 
-	obs_canvas_t *canvas = obs_get_main_canvas();
+	/* obs_get_main_canvas() returns a reference of its own. */
+	OBSCanvasAutoRelease canvas = obs_get_main_canvas();
 	if (!canvas) {
 		Fail(response, Status::InvalidResourceState, "OBS does not have a main canvas.");
 		return;
@@ -546,7 +547,7 @@ void HandleSetSceneName(const QJsonObject &data, Response &response)
 
 void HandleGetGroupList(const QJsonObject &, Response &response)
 {
-	obs_canvas_t *canvas = obs_get_main_canvas();
+	OBSCanvasAutoRelease canvas = obs_get_main_canvas();
 	if (!canvas) {
 		Fail(response, Status::InvalidResourceState, "OBS does not have a main canvas.");
 		return;

@@ -35,6 +35,7 @@
 #include <obs-frontend-api.h>
 
 #include <media-io/audio-io.h>
+#include <util/config-file.h>
 
 #include <QBuffer>
 #include <QDir>
@@ -46,6 +47,7 @@
 #include <QJsonValue>
 #include <QSaveFile>
 #include <QString>
+#include <QStringList>
 
 #include <cmath>
 #include <limits>
@@ -479,6 +481,7 @@ void GetInputKindList(const QJsonObject &data, Response &response)
 	 * to put in front of a user ("Display Capture" is). Extra field, so an
 	 * obs-websocket client reading inputKinds is unaffected. */
 	QJsonArray names;
+	QJsonArray icons;
 	size_t index = 0;
 	const char *id = nullptr;
 	const char *unversionedId = nullptr;
@@ -493,9 +496,11 @@ void GetInputKindList(const QJsonObject &data, Response &response)
 
 		const char *displayName = obs_source_get_display_name(id);
 		names.append(QString::fromUtf8(displayName && *displayName ? displayName : (chosen ? chosen : id)));
+		icons.append(IconTypeName(id));
 	}
 	response.data["inputKinds"] = kinds;
 	response.data["inputKindNames"] = names;
+	response.data["inputKindIcons"] = icons;
 }
 
 void GetInputDefaultSettings(const QJsonObject &data, Response &response)
@@ -1325,8 +1330,150 @@ void SetSourceFilterSettings(const QJsonObject &data, Response &response)
 
 } // namespace
 
+/* ---------------------------------------------------------------- mixer --- */
+
+/* What the Audio Mixer shows is decided by state the desktop dock keeps for
+ * itself: which sources are the global audio devices, which are pinned or
+ * hidden (private settings of the source), which are audible right now, and
+ * four options stored under [BasicWindow]. The page draws the same mixer, so
+ * it needs the same facts - computed here by the same rules (AudioMixer.cpp). */
+
+constexpr int kGlobalAudioChannels = 6;
+
+bool PrivateFlag(obs_source_t *source, const char *name)
+{
+	OBSDataAutoRelease settings = obs_source_get_private_settings(source);
+	return obs_data_get_bool(settings, name);
+}
+
+void HandleGetMixerState(const QJsonObject &, Response &response)
+{
+	config_t *config = obs_frontend_get_user_config();
+	response.data["vertical"] = config_get_bool(config, "BasicWindow", "VerticalVolumeControl");
+	response.data["showInactive"] = config_get_bool(config, "BasicWindow", "MixerShowInactive");
+	response.data["keepInactiveLast"] = config_get_bool(config, "BasicWindow", "MixerKeepInactiveLast");
+	response.data["showHidden"] = config_get_bool(config, "BasicWindow", "MixerShowHidden");
+	response.data["keepHiddenLast"] = config_get_bool(config, "BasicWindow", "MixerKeepHiddenLast");
+
+	struct Context {
+		QStringList global;
+		QStringList previewed;
+		QJsonArray inputs;
+	} context;
+
+	/* Desktop Audio, Mic/Aux...: the sources on the global output channels. */
+	for (int channel = 1; channel <= kGlobalAudioChannels; channel++) {
+		OBSSourceAutoRelease source = obs_get_output_source(channel);
+		if (source) {
+			context.global.append(QString::fromUtf8(obs_source_get_uuid(source)));
+		}
+	}
+
+	/* In Studio Mode, what the preview scene would bring in. */
+	if (obs_frontend_preview_program_mode_active()) {
+		OBSSourceAutoRelease preview = obs_frontend_get_current_preview_scene();
+		obs_scene_t *scene = obs_scene_from_source(preview);
+		if (scene) {
+			obs_scene_enum_items(
+				scene,
+				[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+					obs_source_t *source = obs_sceneitem_get_source(item);
+					if (obs_sceneitem_visible(item) && source &&
+					    (obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) != 0 &&
+					    obs_source_audio_active(source)) {
+						static_cast<Context *>(param)->previewed.append(
+							QString::fromUtf8(obs_source_get_uuid(source)));
+					}
+					return true;
+				},
+				&context);
+		}
+	}
+
+	obs_enum_sources(
+		[](void *param, obs_source_t *source) {
+			auto *state = static_cast<Context *>(param);
+			if ((obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) == 0 ||
+			    obs_source_removed(source)) {
+				return true;
+			}
+			const QString uuid = QString::fromUtf8(obs_source_get_uuid(source));
+
+			QJsonObject entry;
+			entry["inputName"] = QString::fromUtf8(obs_source_get_name(source));
+			entry["inputUuid"] = uuid;
+			entry["global"] = state->global.contains(uuid);
+			entry["pinned"] = PrivateFlag(source, "mixer_pinned");
+			entry["hidden"] = PrivateFlag(source, "mixer_hidden");
+			entry["locked"] = PrivateFlag(source, "volume_locked");
+			entry["active"] = obs_source_active(source) && obs_source_audio_active(source);
+			entry["audioActive"] = obs_source_audio_active(source);
+			entry["previewed"] = state->previewed.contains(uuid);
+			entry["unassigned"] = obs_source_get_audio_mixers(source) == 0;
+			state->inputs.append(entry);
+			return true;
+		},
+		&context);
+
+	response.data["inputs"] = context.inputs;
+}
+
+void HandleSetMixerOption(const QJsonObject &data, Response &response)
+{
+	const QString option = data.value(QStringLiteral("optionName")).toString();
+	const char *key = option == QLatin1String("vertical")           ? "VerticalVolumeControl"
+			  : option == QLatin1String("showInactive")     ? "MixerShowInactive"
+			  : option == QLatin1String("keepInactiveLast") ? "MixerKeepInactiveLast"
+			  : option == QLatin1String("showHidden")       ? "MixerShowHidden"
+			  : option == QLatin1String("keepHiddenLast")   ? "MixerKeepHiddenLast"
+									: nullptr;
+	if (!key) {
+		Fail(response, Status::InvalidRequestFieldType, "Unknown mixer option.");
+		return;
+	}
+	config_t *config = obs_frontend_get_user_config();
+	config_set_bool(config, "BasicWindow", key, data.value(QStringLiteral("optionEnabled")).toBool());
+	config_save_safe(config, "tmp", nullptr);
+}
+
+void HandleSetInputMixerState(const QJsonObject &data, Response &response)
+{
+	OBSSource input = FindInput(data.value(QStringLiteral("inputName")).toString());
+	if (!input) {
+		Fail(response, Status::ResourceNotFound, "No input was found by that name.");
+		return;
+	}
+	OBSDataAutoRelease settings = obs_source_get_private_settings(input);
+	const auto apply = [&](const char *field, const char *key) {
+		const QJsonValue value = data.value(QLatin1String(field));
+		if (value.isBool()) {
+			obs_data_set_bool(settings, key, value.toBool());
+		}
+	};
+	apply("hidden", "mixer_hidden");
+	apply("pinned", "mixer_pinned");
+	apply("locked", "volume_locked");
+}
+
+void HandleUnhideAllInputs(const QJsonObject &, Response &)
+{
+	obs_enum_sources(
+		[](void *, obs_source_t *source) {
+			if ((obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) != 0) {
+				OBSDataAutoRelease settings = obs_source_get_private_settings(source);
+				obs_data_set_bool(settings, "mixer_hidden", false);
+			}
+			return true;
+		},
+		nullptr);
+}
+
 void RegisterInputHandlers()
 {
+	AddHandler("GetMixerState", &HandleGetMixerState);
+	AddHandler("SetMixerOption", &HandleSetMixerOption);
+	AddHandler("SetInputMixerState", &HandleSetInputMixerState);
+	AddHandler("UnhideAllInputs", &HandleUnhideAllInputs);
 	AddHandler("GetInputList", &GetInputList);
 	AddHandler("GetInputKindList", &GetInputKindList);
 	AddHandler("GetInputDefaultSettings", &GetInputDefaultSettings);

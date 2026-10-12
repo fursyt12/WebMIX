@@ -42,6 +42,7 @@
 #include <QUrl>
 #include <QTimer>
 
+#include <obs-frontend-api.h>
 #include <obs.hpp>
 #include <util/platform.h>
 
@@ -113,6 +114,14 @@ const char *MimeForSuffix(const QString &suffix)
 		return "font/woff2";
 	}
 	return "application/octet-stream";
+}
+
+/*! Stops the server when OBS starts to exit; see WebMixServer::Start(). */
+void OnFrontendExit(enum obs_frontend_event event, void *self)
+{
+	if (event == OBS_FRONTEND_EVENT_EXIT) {
+		static_cast<WebMixServer *>(self)->Stop();
+	}
 }
 
 /*! Path of obs-websocket's config.json, or an empty string. */
@@ -233,6 +242,14 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 	 * and password that used to come with it.  Start it only once the server
 	 * is listening, so an unusable port does not leave the event bridge
 	 * metering audio for nobody. */
+	/* The server is a child of the application object and would otherwise be
+	 * torn down with it - after libobs has shut down, with sources still
+	 * hooked and threads still running against it. Leave when OBS says it is
+	 * leaving instead.  Registered before the control service so that its
+	 * own handler (which announces the exit to the page) runs first. */
+	obs_frontend_add_event_callback(OnFrontendExit, this);
+	exitHooked = true;
+
 	WebMixControl::Start();
 	keepAlive = new QTimer(this);
 	keepAlive->setInterval(15000);
@@ -244,8 +261,15 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 
 void WebMixServer::Stop()
 {
+	if (exitHooked) {
+		exitHooked = false;
+		obs_frontend_remove_event_callback(OnFrontendExit, this);
+	}
+
 	/* A remux runs on its own thread and must not outlive libobs. */
 	WebMixRemux::Shutdown();
+	/* Neither may the preview captures: they hold GPU resources. */
+	WebMixPreview::Shutdown();
 
 	if (keepAlive) {
 		keepAlive->stop();
@@ -384,8 +408,12 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		const bool multiview = path.contains(QLatin1String("multiview"));
 		const bool singleFrame = path.endsWith(QLatin1String(".jpg"));
 		const QString source = QueryValue(query, "source");
+		/* `view=program` is the program output itself - what is going out,
+		 * transitions included - rather than a scene rendered again by name. */
+		const bool program = !multiview && !singleFrame &&
+				     QueryValue(query, "view") == QLatin1String("program");
 
-		if (!multiview && source.isEmpty()) {
+		if (!multiview && !program && source.isEmpty()) {
 			SendError(socket, 400, "Missing source");
 			return;
 		}
@@ -436,16 +464,31 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 			return;
 		}
 
-		const int fps = qBound(1, QueryIntOr(query, "fps", 15), 60);
+		WebMixPreview::Target target;
+		target.kind = multiview ? WebMixPreview::Target::Kind::Multiview
+			      : program ? WebMixPreview::Target::Kind::Program
+					: WebMixPreview::Target::Kind::Source;
+		target.source = program ? QString() : source;
+		target.scenes = sceneList;
+		target.width = static_cast<uint32_t>(qMax(0, width));
+		target.height = static_cast<uint32_t>(qMax(0, height));
+		/* OBS's own frame rate is the ceiling whatever is asked for: a frame
+		 * is only made when OBS has rendered one. */
+		target.fps = qBound(1, QueryIntOr(query, "fps", 30), 240);
+		target.quality = quality;
+
 		/* The stream owns the socket from here on.  The request buffer was
 		 * connected as a lambda with the socket as its context, so the
 		 * signal itself has to be disconnected - matching on `this` would
 		 * leave the buffer consuming the stream's own bytes. */
 		disconnect(socket, &QTcpSocket::readyRead, nullptr, nullptr);
-		auto *stream = new WebMixPreview::Stream(socket, source, width, height, fps, quality, this,
-							 multiview ? WebMixPreview::Stream::Mode::Multiview
-								   : WebMixPreview::Stream::Mode::Source);
+		auto *stream = new WebMixPreview::Stream(socket, target, this);
 		stream->Start();
+		return;
+	}
+
+	if (path == "/api/locale") {
+		SendJson(socket, QJsonDocument(WebMixBridge::LocaleStrings()).toJson(QJsonDocument::Compact));
 		return;
 	}
 
@@ -725,6 +768,9 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		/* Preview frames delivered so far: the page samples this twice to
 		 * report the rate it is really getting, which it cannot see itself. */
 		status["previewFrames"] = static_cast<double>(WebMixPreview::FramesSent());
+		status["preview"] = WebMixPreview::Stats();
+		/* The page uses this to ask for the program output itself. */
+		status["previewProgram"] = true;
 		status["shutdownEndpoint"] = true;
 		status["propertySchema"] = true;
 		status["previewStream"] = true;

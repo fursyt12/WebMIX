@@ -165,17 +165,23 @@ bool OptionalIntField(const QJsonObject &data, const char *name, int minimum, in
 }
 
 /*! CPU usage is a delta between two samples, so the sample object has to
- *  outlive a request; one per process is what OBS itself keeps. */
-struct CpuUsageSample {
-	os_cpu_usage_info_t *info = os_cpu_usage_info_start();
-
-	~CpuUsageSample() { os_cpu_usage_info_destroy(info); }
-};
+ *  outlive a request; one per process is what OBS itself keeps.
+ *
+ *  It is released when the service stops (ReleaseGeneralState), not by a
+ *  static destructor: those run after OBS has counted what is still
+ *  allocated, so a static owner showed up as a leak on every exit. */
+os_cpu_usage_info_t *&CpuSample()
+{
+	static os_cpu_usage_info_t *sample = nullptr;
+	return sample;
+}
 
 double CpuUsage()
 {
-	static CpuUsageSample sample;
-	return os_cpu_usage_info_query(sample.info);
+	if (!CpuSample()) {
+		CpuSample() = os_cpu_usage_info_start();
+	}
+	return os_cpu_usage_info_query(CpuSample());
 }
 
 /* ---------------------------------------------------------------- hotkeys -- */
@@ -266,6 +272,12 @@ OBSSource DialogInput(const QJsonObject &requestData, Response &response)
 } // namespace
 
 /* ---------------------------------------------------------------- general -- */
+
+void ReleaseGeneralState()
+{
+	os_cpu_usage_info_destroy(CpuSample());
+	CpuSample() = nullptr;
+}
 
 void RegisterGeneralHandlers()
 {
@@ -425,6 +437,23 @@ void RegisterGeneralHandlers()
 
 /* ----------------------------------------------------------------- config -- */
 
+/*! A request that names something new and hands it to one of OBS's own
+ *  operations, failing with the reason that operation gave. */
+void RunNamed(const QJsonObject &requestData, const char *field, bool (*operation)(const QString &, QString &),
+	      Response &response)
+{
+	const QString name = StringField(requestData, field).trimmed();
+	if (name.isEmpty()) {
+		Fail(response, Status::MissingRequestField, QStringLiteral("A name is required."));
+		return;
+	}
+	QString error;
+	if (!operation(name, error)) {
+		Fail(response, Status::ResourceAlreadyExists,
+		     error.isEmpty() ? QStringLiteral("The operation failed.") : error);
+	}
+}
+
 void RegisterConfigHandlers()
 {
 	AddHandler("GetSceneCollectionList", [](const QJsonObject &, Response &response) {
@@ -493,28 +522,61 @@ void RegisterConfigHandlers()
 		obs_frontend_create_profile(encoded.constData());
 	});
 
+	/* ---- what the desktop does through a name prompt ------------------- */
+
+	/* Each acts on the current profile / scene collection, like the menu
+	 * items they stand in for, and fails with OBS's own reason. */
+	AddHandler("DuplicateProfile", [](const QJsonObject &requestData, Response &response) {
+		RunNamed(requestData, "profileName", &WebMixBridge::DuplicateProfile, response);
+	});
+	AddHandler("RenameProfile", [](const QJsonObject &requestData, Response &response) {
+		RunNamed(requestData, "profileName", &WebMixBridge::RenameProfile, response);
+	});
+	AddHandler("DuplicateSceneCollection", [](const QJsonObject &requestData, Response &response) {
+		RunNamed(requestData, "sceneCollectionName", &WebMixBridge::DuplicateSceneCollection, response);
+	});
+	AddHandler("RenameSceneCollection", [](const QJsonObject &requestData, Response &response) {
+		RunNamed(requestData, "sceneCollectionName", &WebMixBridge::RenameSceneCollection, response);
+	});
+	AddHandler("RemoveSceneCollection", [](const QJsonObject &, Response &response) {
+		QString error;
+		if (!WebMixBridge::RemoveSceneCollection(error)) {
+			Fail(response, Status::InvalidResourceState, error);
+		}
+	});
+
+	/* ---- Studio Mode's centre column ----------------------------------- */
+
+	AddHandler("GetStudioModeState",
+		   [](const QJsonObject &, Response &response) { response.data = WebMixBridge::StudioState(); });
+	AddHandler("TriggerQuickTransition", [](const QJsonObject &requestData, Response &response) {
+		if (!obs_frontend_preview_program_mode_active()) {
+			Fail(response, Status::StudioModeNotActive, QStringLiteral("Studio mode is not active."));
+			return;
+		}
+		if (!WebMixBridge::TriggerQuickTransition(requestData.value("quickTransitionId").toInt(-1))) {
+			Fail(response, Status::ResourceNotFound, QStringLiteral("No quick transition has that id."));
+		}
+	});
+	AddHandler("SetStudioModeOption", [](const QJsonObject &requestData, Response &response) {
+		if (!WebMixBridge::SetStudioOption(StringField(requestData, "optionName"),
+						   requestData.value("optionEnabled").toBool())) {
+			Fail(response, Status::InvalidRequestFieldType, QStringLiteral("Unknown Studio Mode option."));
+		}
+	});
+
 	AddHandler("RemoveProfile", [](const QJsonObject &requestData, Response &response) {
 		const QString name = StringField(requestData, "profileName");
 		if (name.isEmpty()) {
 			Fail(response, Status::MissingRequestField, QStringLiteral("A profile name is required."));
 			return;
 		}
-
-		const QStringList profiles = ProfileNames();
-		if (!profiles.contains(name)) {
-			Fail(response, Status::ResourceNotFound, QStringLiteral("No profile was found by that name."));
-			return;
+		/* Through the seam, not obs_frontend_delete_profile(): that one
+		 * opens a confirmation dialog when the profile is the current one. */
+		QString error;
+		if (!WebMixBridge::RemoveProfile(name, error)) {
+			Fail(response, Status::InvalidResourceState, error);
 		}
-		if (profiles.size() < 2) {
-			/* obs-websocket's NotEnoughResources; removing the last
-			 * profile would leave OBS with nothing to switch to. */
-			Fail(response, Status::InvalidResourceState,
-			     QStringLiteral("The only remaining profile cannot be removed."));
-			return;
-		}
-
-		const QByteArray encoded = name.toUtf8();
-		obs_frontend_delete_profile(encoded.constData());
 	});
 
 	AddHandler("SetCurrentProfile", [](const QJsonObject &requestData, Response &response) {

@@ -49,6 +49,25 @@ bool PressButton(const QString &scope, const QString &sourceName, const QString 
 /*! Encoder choices for the Simple output mode, as the desktop settings offer them. */
 QJsonObject EncoderOptions();
 
+/*! Studio Mode's centre column: quick transitions and the three options. */
+QJsonObject StudioState();
+bool TriggerQuickTransition(int id);
+bool SetStudioOption(const QString &name, bool enabled);
+
+/*! Profile / Scene Collection menu items the desktop asks a name for. Each
+ *  acts on the current one; `error` says why when it returns false. */
+bool DuplicateProfile(const QString &name, QString &error);
+bool RenameProfile(const QString &name, QString &error);
+bool RemoveProfile(const QString &name, QString &error);
+bool DuplicateSceneCollection(const QString &name, QString &error);
+bool RenameSceneCollection(const QString &name, QString &error);
+bool RemoveSceneCollection(QString &error);
+
+/*! The interface strings of OBS itself: `english` and `strings` (the language
+ *  OBS is running in), both keyed like the locale files, so the page can say
+ *  exactly what the desktop window says. */
+QJsonObject LocaleStrings();
+
 /*! Every hotkey with its current bindings, formatted by OBS itself. */
 QJsonArray Hotkeys();
 

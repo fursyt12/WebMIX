@@ -19,23 +19,37 @@
 
 #include <QByteArray>
 #include <QImage>
+#include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 
+#include <memory>
+
 class QTcpSocket;
-class QTimer;
 
 /* WebMIX: live preview frames for the browser.
  *
- * obs-websocket can only take single screenshots (`GetSourceScreenshot`), which
- * costs a websocket round-trip and a base64 data URL per frame.  These helpers
- * render a source directly in the OBS process and stream JPEG frames over one
- * HTTP connection (`multipart/x-mixed-replace`), which the web UI feeds into a
- * WebGPU texture.  The capture path mirrors obs-websocket's screenshot code. */
+ * Frames are produced where OBS produces its own: on the graphics thread, right
+ * after the program has been rendered.  The picture is drawn into a small
+ * texture that is kept between frames, read back and JPEG-encoded on a worker
+ * thread, and handed to the Qt main thread only to be written to the sockets
+ * (`multipart/x-mixed-replace`, one JPEG per part).
+ *
+ * Three properties follow from that split, and they are the point of it:
+ *
+ *  - The main thread never renders, never waits for the GPU and never encodes,
+ *    so the control channel it also serves stays responsive.
+ *  - A frame is only made when a client can take it.  A socket that still has
+ *    bytes queued skips the frame instead of queueing another one, so a slow
+ *    reader costs neither memory nor latency - it just sees fewer frames.
+ *  - The program pane is the program texture OBS already rendered (transitions
+ *    included), so showing it costs one scaled blit, not a second render. */
 namespace WebMixPreview {
 
-/*! Render a source/scene into an RGBA image. Sets `ok` on success. */
+/*! Render a source/scene into an RGBA image, once. Sets `ok` on success.
+ *  For single frames (screenshots, checks); streams do not go through here. */
 QImage CaptureSource(const QString &sourceName, uint32_t width, uint32_t height, bool &ok);
 
 /*!
@@ -48,55 +62,75 @@ QImage CaptureMultiview(const QStringList &sceneNames, uint32_t width, uint32_t 
 /*! Current scene names in display order (top of the OBS list first). */
 QStringList SceneNamesInDisplayOrder();
 
-/*! Encode an image as JPEG; returns an empty array when the plugin is missing. */
+/*! Encode an image as JPEG; returns an empty array on failure. */
 QByteArray EncodeJpeg(const QImage &image, int quality);
 
-/*! Number of running streams, to bound the cost of many open tabs. */
+/*! Number of open streams, to bound the cost of many open tabs. */
 int ActiveStreams();
 
-/*! Frames written to every preview client since start.
- *
- * The browser paints a multipart JPEG stream itself, so JavaScript cannot
- * count what it receives. This is what lets the UI say whether the host is
- * actually keeping up, instead of the user guessing from how it feels. */
+/*! Frames written to every preview client since start. */
 quint64 FramesSent();
 
+/*! What the pipeline is doing, for `/api/status` and for "why is it slow?". */
+QJsonObject Stats();
+
+/*! Stop every capture and release its GPU resources. Safe to call twice; must
+ *  run before libobs shuts down. */
+void Shutdown();
+
+/*! One picture a client asked for. Streams asking for the same picture share
+ *  the render, the read-back and the encode. */
+struct Target {
+	enum class Kind {
+		Program,   /*!< the program output, as rendered (transitions included) */
+		Source,    /*!< one source or scene, by name */
+		Multiview, /*!< every scene in a grid */
+	};
+
+	Kind kind = Kind::Source;
+	QString source;
+	QStringList scenes;
+	uint32_t width = 0;
+	uint32_t height = 0;
+	int fps = 30;
+	int quality = 80;
+
+	QString Key() const;
+};
+
+class Capture;
+
 /*!
- * Streams JPEG frames for one source to one socket.
- *
- * Writes the multipart headers immediately and then one part per tick.  The
- * stream stops when the client disconnects, the source disappears or the
- * connection errors out.
+ * One client of a capture: writes the multipart headers, then each frame the
+ * socket has room for.  Ends when the client disconnects.
  */
 class Stream : public QObject {
 	Q_OBJECT
 
 public:
-	/** What a stream renders: one source, or the scene grid. */
-	enum class Mode { Source, Multiview };
+	Stream(QTcpSocket *socket, Target target, QObject *parent = nullptr);
+	~Stream() override;
 
-	Stream(QTcpSocket *socket, QString sourceName, int width, int height, int fps, int quality,
-	       QObject *parent = nullptr, Mode mode = Mode::Source);
-
-	/*! Send the response headers and start ticking. */
+	/*! Send the response headers and subscribe to the capture. */
 	void Start();
 
+	/*! Write one multipart part, unless the previous one is still queued. */
+	bool Send(const QByteArray &part);
+
+	/*! Whether the socket could take a frame right now. */
+	bool Ready() const;
+
 	/*! Maximum number of concurrent streams. */
-	static constexpr int kMaxStreams = 4;
+	static constexpr int kMaxStreams = 8;
 
 private:
-	void Tick();
+	void Detach();
 
-	QTcpSocket *socket;
-	QString sourceName;
-	int width;
-	int height;
-	int fps;
-	int quality;
-	QTimer *timer = nullptr;
+	QPointer<QTcpSocket> socket;
+	Target target;
+	std::shared_ptr<Capture> capture;
 	bool started = false;
-	Mode mode = Mode::Source;
-	QImage lastFrame;
+	bool detached = false;
 };
 
 } // namespace WebMixPreview

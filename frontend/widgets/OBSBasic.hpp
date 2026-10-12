@@ -40,6 +40,7 @@
 #include <util/util.hpp>
 
 #include <QAccessible>
+#include <QJsonObject>
 #include <QPointer>
 #include <QSystemTrayIcon>
 
@@ -316,6 +317,21 @@ public:
 	bool WebMixRenameTransition(const QString &name, const QString &newName);
 	bool WebMixRemoveTransition(const QString &name);
 	QStringList WebMixTransitionNames() const;
+
+	/* Studio Mode's centre column: the quick transition buttons and the
+	 * three options behind its menu button. */
+	QJsonObject WebMixStudioState();
+	bool WebMixTriggerQuickTransition(int id);
+	bool WebMixSetStudioOption(const QString &name, bool enabled);
+
+	/* Profile / Scene Collection menu items that prompt on the desktop. The
+	 * name has been asked for (and the removal confirmed) by the page. */
+	bool WebMixDuplicateProfile(const QString &name, QString &error);
+	bool WebMixRenameProfile(const QString &name, QString &error);
+	bool WebMixRemoveProfile(const QString &name, QString &error);
+	bool WebMixDuplicateSceneCollection(const QString &name, QString &error);
+	bool WebMixRenameSceneCollection(const QString &name, QString &error);
+	bool WebMixRemoveSceneCollection(QString &error);
 
 	int ResetVideo();
 	bool ResetAudio();
