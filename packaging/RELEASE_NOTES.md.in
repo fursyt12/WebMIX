@@ -9,25 +9,21 @@ stops an unattended start.
 
 ## What is new
 
-* **Preview.** Frames are now produced on OBS's graphics thread and encoded on
-  a worker, and a frame is only made when a client can take it. The preview
-  runs at OBS's own frame rate in both Studio Mode panes with about 10 ms from
-  render to browser, the interface stays responsive while it does, and a slow
-  or remote browser gets fewer frames instead of a growing backlog (which used
-  to eat memory until OBS died). The program pane is the real program output,
-  so transitions are visible.
-* **Stability.** Sources are released when they are removed (a deleted Browser
-  source used to keep its Chromium processes for ever), OBS no longer crashes
-  on exit, and removing the current profile no longer hangs on a dialog nobody
-  can see.
-* **The interface looks and reads like the desktop window.** It uses OBS's own
-  translations (so it follows the language OBS runs in) and the desktop theme's
-  icons; the docks are laid out like the desktop's, the Audio Mixer is the
-  desktop mixer (categories, pin / hide / lock, options), and Studio Mode has
-  its Transition button, quick transitions and T-bar between the two panes.
-* **More of the menus work.** Duplicate/rename profile, duplicate/rename/remove
-  scene collection, the Help links, multiview, and the buttons of the source
-  Properties dialog (they were missing, as was every checkbox in the page).
+* **Layers are in the right order.** The Sources list is front first, like the
+  desktop's: the top row is the top layer. It used to be shown back to front,
+  so "Move Up" moved a source down and a click in the preview picked the source
+  *behind* the one under the pointer.
+* **Editing in the preview works like OBS.** Drag to move, with snapping to the
+  canvas edges, to other sources and (if enabled in OBS) to the centre, at the
+  snap distance set in OBS - hold Ctrl to switch it off, Shift to stay on one
+  axis. Corner handles scale in proportion (Shift: freely), edge handles
+  stretch, Alt + a handle crops, and the knob above the frame rotates (Shift:
+  in 15 degree steps). Rotated, flipped, cropped and bounding-box items are all
+  framed and edited where they are actually drawn; arrow keys nudge by a pixel
+  (Shift: ten).
+
+The previous release (0.4.0) rebuilt the preview pipeline, made the page look
+and read like the desktop window, and fixed the crash on exit.
 
 ## Downloads
 

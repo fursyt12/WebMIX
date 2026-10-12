@@ -19,6 +19,7 @@ import { h, clear, setClass } from '../dom.js';
 import { showContextMenu } from './dialog.js';
 import { icon, iconButton } from './icons.js';
 import { t } from '../i18n.js';
+import { HANDLES, boxOf, toScene, contains, bounds, snapLines, move, stretch, crop, rotate } from '../scene-transform.js';
 import { WebGpuPreview, webgpuAvailable, openMjpegStream } from '../webgpu-preview.js';
 import { selectors } from '../store.js';
 import {
@@ -115,6 +116,7 @@ export class PreviewPanel {
     };
     this.onResize = () => this.#resizeSurfaces();
     document.addEventListener('visibilitychange', this.onVisibility);
+    this.canvas.addEventListener('keydown', (event) => this.#nudge(event));
     window.addEventListener('resize', this.onResize);
 
     this.#buildControls();
@@ -685,37 +687,58 @@ export class PreviewPanel {
     }
   }
 
-  /*! The item's box in scene coordinates (rotation and crop are ignored). */
+  /*! The item's box (size, anchor, rotation), or null before its transform
+   *  is known. */
   #itemBox(surface, item) {
     const transform = this.#transformFor(surface, item);
-    return transform ? itemBox(transform) : null;
+    return transform ? boxOf(transform) : null;
   }
 
+  /*! The scene's items, front first - the order they cover each other in. */
   #sceneItems(surface) {
-    return selectors.sceneItems(this.store.state, surface.scene);
+    return selectors.sceneItemsTopFirst(this.store.state, surface.scene);
   }
 
-  /** Top-most item under a scene point (index 0 is the top of the list). */
+  /** The front-most item under a scene point. */
   #hitTest(surface, point) {
     for (const item of this.#sceneItems(surface)) {
+      /* A hidden source is not there; a locked one is not selectable in OBS's
+       * preview either, and the click falls through to what is behind it. */
+      if (!item.sceneItemEnabled || item.sceneItemLocked) continue;
       const box = this.#itemBox(surface, item);
-      if (!box || !item.sceneItemEnabled) continue;
-      /* A locked source is not selectable in OBS's preview either: the click
-       * falls through to whatever is behind it. */
-      if (item.sceneItemLocked) continue;
-      if (point.x >= box.left && point.x <= box.left + box.width && point.y >= box.top && point.y <= box.top + box.height) {
-        return item;
-      }
+      if (box && contains(box, point)) return item;
     }
     return null;
+  }
+
+  /*! OBS's snapping options ([BasicWindow] in the user config). */
+  async #loadSnapping() {
+    this.snapping = { enabled: true, screen: true, sources: true, center: false, distance: 10 };
+    try {
+      Object.assign(this.snapping, await this.api.request('GetPreviewSnapping'));
+    } catch {
+      /* a host without the request: OBS's defaults */
+    }
+  }
+
+  /*! The lines a drag may stick to: the canvas, and every other visible item. */
+  #snapLinesFor(surface, sceneItemId) {
+    const video = this.store.state.video ?? {};
+    const canvas = { baseWidth: video.baseWidth || 1920, baseHeight: video.baseHeight || 1080 };
+    const others = [];
+    for (const item of this.#sceneItems(surface)) {
+      if (item.sceneItemId === sceneItemId || !item.sceneItemEnabled) continue;
+      const box = this.#itemBox(surface, item);
+      if (box) others.push(bounds(box));
+    }
+    return snapLines(canvas, others, this.snapping ?? {});
   }
 
   #wireSelection(surface) {
     const { pane } = surface;
 
     pane.addEventListener('pointerdown', (event) => {
-      // A failure here must never break the preview (or the click-to-switch
-      // scene behaviour that also lives on this element).
+      // A failure here must never break the preview.
       try {
         this.#beginDrag(surface, event);
       } catch (err) {
@@ -737,6 +760,9 @@ export class PreviewPanel {
       if (!drag || drag.pointerId !== event.pointerId) return;
       this.drag = null;
       drag.surface.guides = null;
+      /* The last position is the one that counts: send it even if the
+       * throttle swallowed it a moment ago. */
+      if (drag.pending) this.#send(drag, true);
       this.#renderSelection();
       try { pane.releasePointerCapture(event.pointerId); } catch { /* already gone */ }
     };
@@ -750,100 +776,137 @@ export class PreviewPanel {
     /* In Studio Mode only the preview is edited; the program pane shows what
      * is going out and cannot be touched, as on the desktop. */
     if (this.store.state.studioMode && surface.kind === 'program') return;
-    {
-      const point = this.#scenePoint(surface, event);
-      if (!point || !pointInCanvas(point, this.store.state.video)) return;
-      this.#ensureTransforms(surface);
+    if (event.target.closest('button, select, input')) return;
 
-      const handle = event.target.closest('.obs-preview-handle')?.dataset.handle;
-      const item = handle
-        ? this.#sceneItems(surface).find((i) => i.sourceName === this.selected)
-        : this.#hitTest(surface, point);
-      if (!item || item.sceneItemLocked) {
-        this.selected = null;
-        this.#renderSelection();
-        return;
-      }
+    const point = this.#scenePoint(surface, event);
+    if (!point) return;
+    this.#ensureTransforms(surface);
+    if (!this.snapping) this.#loadSnapping();
 
-      this.selected = item.sourceName;
-      this.onSelectSource?.(item.sourceName);
+    const handleName = event.target.closest('[data-handle]')?.dataset.handle ?? null;
+    const item = handleName
+      ? this.#sceneItems(surface).find((i) => i.sourceName === this.selected)
+      : this.#hitTest(surface, point);
+    if (!item || item.sceneItemLocked) {
+      this.selected = null;
+      this.onSelectSource?.(null);
       this.#renderSelection();
-
-      const box = this.#itemBox(surface, item);
-      if (!box) return;
-      surface.guides = null;
-      this.drag = {
-        surface,
-        pointerId: event.pointerId,
-        guides: null,
-        handle: handle ?? null,
-        sceneItemId: item.sceneItemId,
-        startX: point.x,
-        startY: point.y,
-        box,
-        pending: null,
-        sent: 0,
-      };
-      try {
-        surface.pane.setPointerCapture(event.pointerId);
-      } catch {
-        /* Synthetic or already-released pointers cannot be captured; the pane
-         * still receives the move events. */
-      }
-      event.preventDefault();
+      return;
     }
+
+    this.selected = item.sourceName;
+    this.onSelectSource?.(item.sourceName);
+    this.#renderSelection();
+
+    const transform = this.#transformFor(surface, item);
+    if (!transform) return;
+    const start = { ...transform };
+    const handle = HANDLES[handleName] ?? null;
+    /* Where on the handle it was grabbed: the handle follows the pointer by
+     * that offset instead of jumping to it. */
+    const grabbed = handle ? toScene(boxOf(start), handle.hu, handle.hv) : null;
+
+    surface.guides = null;
+    this.drag = {
+      surface,
+      pointerId: event.pointerId,
+      mode: handleName === 'rot' ? 'rotate' : handle ? 'handle' : 'move',
+      handle,
+      sceneItemId: item.sceneItemId,
+      start,
+      startX: point.x,
+      startY: point.y,
+      grabX: grabbed ? point.x - grabbed.x : 0,
+      grabY: grabbed ? point.y - grabbed.y : 0,
+      lines: this.#snapLinesFor(surface, item.sceneItemId),
+      pending: null,
+      sent: 0,
+    };
+    try {
+      surface.pane.setPointerCapture(event.pointerId);
+    } catch {
+      /* Synthetic or already-released pointers cannot be captured; the pane
+       * still receives the move events. */
+    }
+    event.preventDefault();
+    this.canvas.focus?.({ preventScroll: true });
   }
 
+  /*! One step of a drag, by OBS's rules:
+   *    body    move; sticks to the canvas, its centre and other sources
+   *    corner  scale, keeping proportions (Shift: freely)
+   *    edge    stretch one dimension
+   *    Alt     crop instead of scaling
+   *    knob    rotate (Shift: in steps of 15 degrees)
+   *    Ctrl    no snapping for this drag */
   #moveDrag(surface, event) {
     const drag = this.drag;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    {
-      const point = this.#scenePoint(surface, event);
-      if (!point) return;
+    const point = this.#scenePoint(surface, event);
+    if (!point) return;
 
-      const dx = point.x - drag.startX;
-      const dy = point.y - drag.startY;
-      const video = this.store.state.video ?? {};
-      const canvas = { baseWidth: video.baseWidth || 1920, baseHeight: video.baseHeight || 1080 };
-      /* Holding Alt is the "let me put it exactly here" escape hatch. */
-      const threshold = event.altKey ? 0 : SNAP_PIXELS / point.scale;
+    const snapping = this.snapping ?? { enabled: true, distance: 10 };
+    const snap = snapping.enabled !== false && !event.ctrlKey;
+    const threshold = snap ? (snapping.distance || 10) / point.scale : 0;
+    const lines = snap ? drag.lines : null;
+    const pulled = { x: point.x - drag.grabX, y: point.y - drag.grabY };
 
-      let patch;
-      if (drag.handle) {
-        const proposed = resizeBox(drag.box, drag.handle, dx, dy);
-        const snapped = snapResizeBox(proposed, drag.handle, canvas, threshold);
-        patch = boxToTransform(snapped.box);
-        drag.guides = snapped.guides;
-      } else {
-        const proposed = moveBox(drag.box, dx, dy);
-        const snapped = snapMoveBox(proposed, canvas, threshold);
-        patch = boxToPosition(snapped.box);
-        drag.guides = snapped.guides;
+    let result;
+    if (drag.mode === 'rotate') {
+      result = rotate(drag.start, point, { step: event.shiftKey ? 15 : 0 });
+    } else if (drag.mode === 'handle') {
+      result = event.altKey
+        ? crop(drag.start, drag.handle, pulled)
+        : stretch(drag.start, drag.handle, pulled, { free: event.shiftKey, lines, threshold });
+    } else {
+      let dx = point.x - drag.startX;
+      let dy = point.y - drag.startY;
+      /* Shift keeps the move on one axis. */
+      if (event.shiftKey) {
+        if (Math.abs(dx) > Math.abs(dy)) dy = 0;
+        else dx = 0;
       }
-
-      /* Draw immediately, then tell OBS; the next store update confirms it. */
-      drag.pending = patch;
-      surface.guides = drag.guides;
-      this.#applyDrag(surface, drag);
+      result = move(drag.start, dx, dy, lines, threshold);
     }
+
+    drag.pending = result.patch;
+    surface.guides = result.guides;
+    /* Draw at once; the traffic to OBS is what gets throttled. */
+    this.#previewTransform(surface, drag.sceneItemId, result.patch);
+    this.#renderSelection();
+    this.#send(drag, false);
   }
 
-  /*! Send a drag patch, at most a few times per second. */
-  #applyDrag(surface, drag) {
+  /*! Tell OBS, at most about thirty times a second while dragging. */
+  #send(drag, force) {
     const patch = drag.pending;
     if (!patch) return;
-
-    /* Keep the overlay in step without waiting for the round trip, on every
-     * pointer move - only the traffic to OBS is throttled. */
-    this.#previewTransform(surface, drag.sceneItemId, patch);
-    this.#renderSelection();
-
     const now = performance.now();
-    if (drag.sent && now - drag.sent < 33) return;
+    if (!force && drag.sent && now - drag.sent < 33) return;
     drag.sent = now;
+    drag.pending = null;
     this.api
-      .setSceneItemTransform(surface.scene, drag.sceneItemId, { ...patch })
+      .setSceneItemTransform(drag.surface.scene, drag.sceneItemId, { ...patch })
       .catch((err) => this.#report(err, true));
+  }
+
+  /*! Arrow keys nudge the selected source by a pixel (Shift: ten). */
+  #nudge(event) {
+    const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
+    if (!step || this.locked || !this.selected || event.target.closest?.('input, select, textarea')) return;
+    const surface = this.surfaces.find((s) => !(this.store.state.studioMode && s.kind === 'program'));
+    const item = surface && this.#sceneItems(surface).find((i) => i.sourceName === this.selected);
+    const transform = item && !item.sceneItemLocked ? this.#transformFor(surface, item) : null;
+    if (!transform) return;
+    event.preventDefault();
+    const amount = event.shiftKey ? 10 : 1;
+    const patch = {
+      positionX: (transform.positionX || 0) + step[0] * amount,
+      positionY: (transform.positionY || 0) + step[1] * amount,
+    };
+    this.#previewTransform(surface, item.sceneItemId, patch);
+    this.#renderSelection();
+    this.api.setSceneItemTransform(surface.scene, item.sceneItemId, patch).catch((err) => this.#report(err, true));
   }
 
   /*! Apply a pending drag to the local copy of the item's transform. */
@@ -854,7 +917,8 @@ export class PreviewPanel {
     if (item?.sceneItemTransform) Object.assign(item.sceneItemTransform, patch);
   }
 
-  /** Draw the selection rectangle, its handles and any snap guides. */
+  /** Draw the selection frame (turned with the item), its handles, the
+   *  rotation knob and any snap guides. */
   #renderSelection() {
     for (const surface of this.surfaces) {
       const { selection, pane, frame } = surface;
@@ -868,6 +932,7 @@ export class PreviewPanel {
       const item = this.selected
         ? this.#sceneItems(surface).find((i) => i.sourceName === this.selected)
         : null;
+      /* A locked source has no transform box, as in OBS. */
       const box = item && !item.sceneItemLocked ? this.#itemBox(surface, item) : null;
       const frameBox = frame.getBoundingClientRect();
       const paneBox = pane.getBoundingClientRect();
@@ -876,13 +941,26 @@ export class PreviewPanel {
         continue;
       }
 
-      const rect = overlayRect(box.transform, frameBox, paneBox, this.store.state.video);
+      if (!selection.querySelector('.obs-preview-rotate')) {
+        selection.appendChild(h('div.obs-preview-rotate', { dataset: { handle: 'rot' } }));
+      }
+
+      const video = this.store.state.video;
+      const corner = toScene(box, 0, 0);
+      const origin = sceneToPane(corner.x, corner.y, frameBox, paneBox, video);
+      const unit = sceneToPane(corner.x + 1, corner.y, frameBox, paneBox, video);
+      const scale = unit.x - origin.x;
 
       selection.hidden = false;
-      selection.style.left = `${rect.left}px`;
-      selection.style.top = `${rect.top}px`;
-      selection.style.width = `${Math.max(2, rect.width)}px`;
-      selection.style.height = `${Math.max(2, rect.height)}px`;
+      setClass(selection, 'is-locked', !!item.sceneItemLocked);
+      selection.style.left = `${origin.x}px`;
+      selection.style.top = `${origin.y}px`;
+      selection.style.width = `${Math.max(1, Math.abs(box.width) * scale)}px`;
+      selection.style.height = `${Math.max(1, Math.abs(box.height) * scale)}px`;
+      /* Turned with the item, and mirrored with a flipped one, so each handle
+       * stays on the corner it pulls. */
+      selection.style.transform =
+        `rotate(${box.rotation}deg) scale(${box.width < 0 ? -1 : 1}, ${box.height < 0 ? -1 : 1})`;
     }
   }
 

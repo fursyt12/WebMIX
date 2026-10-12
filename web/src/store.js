@@ -611,6 +611,14 @@ export const selectors = {
   currentProgramScene: (state) => state.currentProgramScene,
   currentPreviewScene: (state) => state.currentPreviewScene,
   sceneItems: (state, sceneName) => state.sceneItems[sceneName] ?? [],
+  /**
+   * The same items, front first. OBS numbers scene items from the back
+   * (index 0 is drawn first, under everything else), while its Sources list -
+   * and anybody looking at a stack of layers - reads from the front: the top
+   * row is the top layer. Everything that shows or hit-tests the layers goes
+   * through here; the stored order stays OBS's.
+   */
+  sceneItemsTopFirst: (state, sceneName) => [...(state.sceneItems[sceneName] ?? [])].reverse(),
   inputs: (state) => Object.values(state.inputs),
   audio: (state, inputName) => state.audio[inputName] ?? null,
   filters: (state, sourceName) => state.filters[sourceName] ?? [],

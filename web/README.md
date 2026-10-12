@@ -297,13 +297,15 @@ Everything below operates the **live** OBS instance:
   decides whether a large pane can still hold 60 fps. A `ResizeObserver` follows
   splitter drags, and the preview's context menu reports the frame rate actually
   painted (e.g. `Preview: 59.8 fps (stream, 800×450)`).
-* **Select, move and scale in the preview** — click a source to select it, drag
-  to move, drag a handle to resize; the selection frame is drawn from OBS's own
-  scene-item transform. While dragging, an edge or a centre that comes within
-  8 px of a canvas edge or the canvas centre **sticks** to it and a guide line
-  shows which line it caught. Hold **Alt** to place it exactly where the pointer
-  is. The geometry is pure and lives in `src/scene-geometry.js`, so it is unit
-  tested without a browser.
+* **Edit in the preview, by OBS's rules** — click picks the front-most source
+  under the pointer; drag moves it, sticking to the canvas edges, other sources
+  and (when enabled) the centre, by the snapping options and distance set in
+  OBS; Ctrl switches snapping off and Shift keeps the move on one axis. Corner
+  handles scale in proportion (Shift: freely), edge handles stretch one
+  dimension, Alt + a handle crops, the knob rotates (Shift: 15 degree steps),
+  arrow keys nudge. Rotation, flips, crop, alignment and bounding boxes are
+  honoured. The arithmetic is pure and lives in `src/scene-transform.js`, so it
+  is unit tested without a browser.
 * **Properties and Filters** — rendered from the real OBS property schema via
   the WebMIX bridge, so the dialogs show the same localised labels, sliders,
   ranges, list/radio choices, colour pickers, font pickers, groups and

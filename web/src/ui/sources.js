@@ -3,8 +3,8 @@
  *
  * Reproduces OBS's Sources panel for the active scene: per-item visibility and
  * lock toggles, source icon, name, F2 rename, drag-free reordering through
- * Move Up / Move Down (sceneItemIndex 0 is the TOP of the list, matching
- * obs-websocket), the Add Source dialog and the source context menu.
+ * Move Up / Move Down (rows are front first: the top row is the top layer,
+ * as in OBS), the Add Source dialog and the source context menu.
  */
 import { h, reconcile, setText, setClass, clear, qs } from '../dom.js';
 import { iconButton, icon, sourceIcon } from './icons.js';
@@ -332,12 +332,14 @@ export class SourcesPanel {
     const sceneName = this.#sceneName();
     const item = this.#selectedItem();
     if (!sceneName || !item) return;
-    const items = selectors.sceneItems(this.store.state, sceneName);
+    /* Rows are front first, OBS's index counts from the back: one row up
+     * is one index higher. */
+    const items = selectors.sceneItemsTopFirst(this.store.state, sceneName);
     const index = items.findIndex((i) => i.sceneItemId === item.sceneItemId);
     const next = index + direction;
     if (next < 0 || next >= items.length) return;
     this.api
-      .setSceneItemIndex(sceneName, item.sceneItemId, next)
+      .setSceneItemIndex(sceneName, item.sceneItemId, items.length - 1 - next)
       .catch((err) => this.onStatus?.(err.message, 'error'));
   }
 
@@ -414,7 +416,7 @@ export class SourcesPanel {
     const name = this.selected;
     const item = this.#selectedItem();
     const sceneName = this.#sceneName();
-    const items = selectors.sceneItems(this.store.state, sceneName);
+    const items = selectors.sceneItemsTopFirst(this.store.state, sceneName);
     const index = item ? items.findIndex((i) => i.sceneItemId === item.sceneItemId) : -1;
     showContextMenu({ x, y }, [
       { label: 'Add Source', action: () => this.addSource() },
@@ -480,7 +482,7 @@ export class SourcesPanel {
 
   update(state) {
     const sceneName = selectors.previewPaneScene(state);
-    const items = selectors.sceneItems(state, sceneName);
+    const items = selectors.sceneItemsTopFirst(state, sceneName);
     if (this.selected && !items.some((i) => i.sourceName === this.selected)) this.selected = null;
 
     reconcile(

@@ -2358,3 +2358,54 @@ body.obs-app {
   border-color: var(--obs-primary-light);
   color: var(--obs-text-light, #FFFFFF);
 }
+
+/* ---- editing a source in the preview ------------------------------------- */
+
+/* The frame turns with the item, about the corner it is positioned by. */
+.obs-preview-selection {
+  transform-origin: 0 0;
+  border-color: #FF0000;
+}
+
+.obs-preview-handle {
+  background: #FF0000;
+  border-color: #FF0000;
+  border-radius: 0;
+}
+
+/* The rotation knob: a stem from the top edge to a round handle. */
+.obs-preview-rotate {
+  position: absolute;
+  left: 50%;
+  top: -30px;
+  width: 11px;
+  height: 11px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: #FF0000;
+  pointer-events: auto;
+  cursor: grab;
+}
+
+/* The stem is only a drawing: it ends on the top-edge handle, and must not
+   take that handle's clicks. */
+.obs-preview-rotate::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 11px;
+  width: 1px;
+  height: 14px;
+  background: #FF0000;
+  pointer-events: none;
+}
+
+.obs-preview-selection.is-locked .obs-preview-handle,
+.obs-preview-selection.is-locked .obs-preview-rotate {
+  display: none;
+}
+
+/* Snap guides, in the desktop's colour. */
+.obs-preview-guide {
+  background: #00FF00;
+}

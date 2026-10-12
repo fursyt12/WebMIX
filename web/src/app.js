@@ -737,18 +737,20 @@ function buildUi() {
       case 'moveToTop':
       case 'moveToBottom': {
         if (!selected || !sceneItem) return statusMessage('Select a source first', 'warning');
-        const items = selectors.sceneItems(store2.state, sceneName);
-        const index = items.findIndex((i) => i.sceneItemId === sceneItem.sceneItemId);
-        const target =
+        /* Rows are front first; OBS's index counts from the back. */
+        const items = selectors.sceneItemsTopFirst(store2.state, sceneName);
+        const row = items.findIndex((i) => i.sceneItemId === sceneItem.sceneItemId);
+        const targetRow =
           action === 'moveUp'
-            ? index - 1
+            ? row - 1
             : action === 'moveDown'
-              ? index + 1
+              ? row + 1
               : action === 'moveToTop'
                 ? 0
                 : items.length - 1;
+        const clamped = Math.max(0, Math.min(items.length - 1, targetRow));
         await api
-          .setSceneItemIndex(sceneName, sceneItem.sceneItemId, Math.max(0, Math.min(items.length - 1, target)))
+          .setSceneItemIndex(sceneName, sceneItem.sceneItemId, items.length - 1 - clamped)
           .catch((err) => statusMessage(err.message, 'error'));
         break;
       }

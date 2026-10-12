@@ -533,29 +533,44 @@ async function main() {
     );
     const snappedTo = await centreOf();
 
+    /* The page snaps by OBS's own options, and "Snap Sources to horizontal and
+     * vertical center" is off unless the user turned it on - so whether the
+     * centre is sticky is OBS's answer, not a constant. */
+    const snapping = await cdp.evaluate(
+      `window.webmix.client.request('GetPreviewSnapping').then((s) => JSON.stringify(s)).catch(() => '{}')`,
+      { awaitPromise: true }
+    ).then(JSON.parse);
+    const centreSticks = snapping.enabled !== false && snapping.center === true;
+    const stuck =
+      Math.abs(snappedTo.x - setup.baseWidth / 2) < 0.5 && Math.abs(snappedTo.y - setup.baseHeight / 2) < 0.5;
+
     checks.check(
-      'dragging near the canvas centre sticks to it',
-      Math.abs(snappedTo.x - setup.baseWidth / 2) < 0.5 && Math.abs(snappedTo.y - setup.baseHeight / 2) < 0.5,
-      { wanted: [setup.baseWidth / 2, setup.baseHeight / 2], got: snappedTo }
+      `dragging near the canvas centre ${centreSticks ? 'sticks to it' : 'does not stick (Center Snapping is off in OBS)'}`,
+      stuck === centreSticks,
+      { wanted: [setup.baseWidth / 2, setup.baseHeight / 2], got: snappedTo, snapping }
     );
-    checks.check('a guide is drawn on each snapped axis', guides.x === true && guides.y === true, guides);
+    checks.check(
+      'a guide is drawn exactly when an axis snapped',
+      guides.x === centreSticks && guides.y === centreSticks,
+      guides
+    );
     created.scenes.add(setup.scene);
     created.inputs.add(setup.source);
 
-    // And Alt puts it exactly where the pointer left it. The first drag moved
+    // And Ctrl puts it exactly where the pointer left it (Alt is for cropping). The first drag moved
     // the item, so the press point has to be read from the overlay again.
     const held = await cdp.evaluate(`(() => {
       const r = document.querySelector('.obs-preview-pane.is-program .obs-preview-selection').getBoundingClientRect();
       return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
     })()`).then(JSON.parse);
-    const off = await drag(held, { x: held.x + 5 * setup.scale, y: held.y + 5 * setup.scale }, 1 /* Alt */);
+    const off = await drag(held, { x: held.x + 5 * setup.scale, y: held.y + 5 * setup.scale }, 2 /* Ctrl */);
     const unsnapped = await centreOf();
     checks.check(
-      'holding Alt keeps the item off the snap lines',
-      Math.abs(unsnapped.x - setup.baseWidth / 2) > 1 || Math.abs(unsnapped.y - setup.baseHeight / 2) > 1,
-      { got: unsnapped }
+      'holding Ctrl keeps the item off the snap lines, as in OBS',
+      Math.abs(unsnapped.x - (snappedTo.x + 5)) < 0.75 && Math.abs(unsnapped.y - (snappedTo.y + 5)) < 0.75,
+      { from: snappedTo, got: unsnapped }
     );
-    checks.check('and Alt shows no guides', off.x === false && off.y === false, off);
+    checks.check('and Ctrl shows no guides', off.x === false && off.y === false, off);
 
     await cdp.evaluate(
       `(async () => {

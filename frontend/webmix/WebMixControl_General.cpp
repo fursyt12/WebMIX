@@ -547,6 +547,18 @@ void RegisterConfigHandlers()
 
 	/* ---- Studio Mode's centre column ----------------------------------- */
 
+	/* How the desktop preview snaps what is dragged in it; the page's preview
+	 * edits by the same options. */
+	AddHandler("GetPreviewSnapping", [](const QJsonObject &, Response &response) {
+		config_t *config = obs_frontend_get_user_config();
+		response.data["enabled"] = config_get_bool(config, "BasicWindow", "SnappingEnabled");
+		response.data["screen"] = config_get_bool(config, "BasicWindow", "ScreenSnapping");
+		response.data["sources"] = config_get_bool(config, "BasicWindow", "SourceSnapping");
+		response.data["center"] = config_get_bool(config, "BasicWindow", "CenterSnapping");
+		const double distance = config_get_double(config, "BasicWindow", "SnapDistance");
+		response.data["distance"] = distance > 0.0 ? distance : 10.0;
+	});
+
 	AddHandler("GetStudioModeState",
 		   [](const QJsonObject &, Response &response) { response.data = WebMixBridge::StudioState(); });
 	AddHandler("TriggerQuickTransition", [](const QJsonObject &requestData, Response &response) {
