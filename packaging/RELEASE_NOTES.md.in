@@ -7,6 +7,28 @@ network. The preview is rendered with **WebGPU** from frames OBS encodes in
 process, and the "OBS did not shut down properly" safe-mode dialog no longer
 stops an unattended start.
 
+## What is new
+
+* **Preview.** Frames are now produced on OBS's graphics thread and encoded on
+  a worker, and a frame is only made when a client can take it. The preview
+  runs at OBS's own frame rate in both Studio Mode panes with about 10 ms from
+  render to browser, the interface stays responsive while it does, and a slow
+  or remote browser gets fewer frames instead of a growing backlog (which used
+  to eat memory until OBS died). The program pane is the real program output,
+  so transitions are visible.
+* **Stability.** Sources are released when they are removed (a deleted Browser
+  source used to keep its Chromium processes for ever), OBS no longer crashes
+  on exit, and removing the current profile no longer hangs on a dialog nobody
+  can see.
+* **The interface looks and reads like the desktop window.** It uses OBS's own
+  translations (so it follows the language OBS runs in) and the desktop theme's
+  icons; the docks are laid out like the desktop's, the Audio Mixer is the
+  desktop mixer (categories, pin / hide / lock, options), and Studio Mode has
+  its Transition button, quick transitions and T-bar between the two panes.
+* **More of the menus work.** Duplicate/rename profile, duplicate/rename/remove
+  scene collection, the Help links, multiview, and the buttons of the source
+  Properties dialog (they were missing, as was every checkbox in the page).
+
 ## Downloads
 
 | Platform | File | Install |
@@ -77,7 +99,9 @@ is trusted.
 * The package is named `webmix` and provides/conflicts with `obs-studio`, so it
   can be installed next to (or instead of) your distribution's OBS. It installs
   `/usr/bin/obs` plus a `/usr/bin/webmix` symlink and a WebMIX launcher.
-* Uploading logs to obsproject.com, the Plugin Manager and the Auto-Configuration
-  Wizard are still desktop-only; the rest of the menu tree works.
+* Still desktop-only: uploading logs to obsproject.com, the Plugin Manager, the
+  Auto-Configuration Wizard, undo/redo, grouping sources and importing or
+  exporting profiles and scene collections. The Settings dialog covers the same
+  pages as before and does not yet look like the desktop one.
 
 Full documentation: <https://github.com/fursyt12/WebMIX/blob/master/web/README.md>
