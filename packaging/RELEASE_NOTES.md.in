@@ -9,21 +9,28 @@ stops an unattended start.
 
 ## What is new
 
-* **Layers are in the right order.** The Sources list is front first, like the
-  desktop's: the top row is the top layer. It used to be shown back to front,
-  so "Move Up" moved a source down and a click in the preview picked the source
-  *behind* the one under the pointer.
-* **Editing in the preview works like OBS.** Drag to move, with snapping to the
-  canvas edges, to other sources and (if enabled in OBS) to the centre, at the
-  snap distance set in OBS - hold Ctrl to switch it off, Shift to stay on one
-  axis. Corner handles scale in proportion (Shift: freely), edge handles
-  stretch, Alt + a handle crops, and the knob above the frame rotates (Shift:
-  in 15 degree steps). Rotated, flipped, cropped and bounding-box items are all
-  framed and edited where they are actually drawn; arrow keys nudge by a pixel
-  (Shift: ten).
+* **Sign-in for other computers.** Browsers on the computer running OBS open
+  the interface as before. Every other browser now has to sign in with the
+  login set in **Tools > Web Interface Access**; until one is set, the
+  interface is closed to other computers. The password is stored salted and
+  hashed, sessions end when the login changes or OBS restarts, repeated wrong
+  passwords lock the address out for a while, and requests that another site
+  makes your browser send are refused.
+* **Tools > WebSocket Server Settings**, in the browser: turn the obs-websocket
+  server on or off, change its port and password (or generate one), see and
+  kick connected clients, and show the Connect Info with its QR code - the
+  plugin's own dialog and wording, applied by the plugin itself.
+* **Settings > General: start with the computer.** *Start WebMIX when I sign in
+  to this computer* adds an autostart entry (Linux and Windows) that serves on
+  the current address and port without asking, and *Don't open the browser
+  when OBS starts* is `--no-browser` for every launch.
+* **obs-websocket gets a password again.** Web mode used to save an empty
+  password while enabling the server, so clients that needed one could not
+  authenticate; the plugin now generates one, as on a normal first start
+  (existing installs get one on the next start).
 
-The previous release (0.4.0) rebuilt the preview pipeline, made the page look
-and read like the desktop window, and fixed the crash on exit.
+The previous release (0.5.0) put layers front first and made editing in the
+preview follow OBS's rules (snapping, proportional scaling, crop, rotation).
 
 ## Downloads
 
@@ -64,9 +71,13 @@ obs                           # asks once, then opens the interface
 webmix                        # same thing; webmix is a symlink to obs
 obs --web-host 0.0.0.0        # reachable from the LAN (skips the question)
 obs --web-choose              # ask again even if the answer was remembered
-obs --no-browser              # autostart: serve, but do not open a browser
+obs --no-browser              # serve, but do not open a browser
 obs --no-web                  # the classic OBS window instead
 ```
+
+To start WebMIX with the computer, tick *Start WebMIX when I sign in to this
+computer* in **Settings > General**; *Don't open the browser when OBS starts*
+in the same place does what `--no-browser` does, for every launch.
 
 On a normal launch OBS asks which address and port to serve on — the addresses
 are the ones this machine actually has — and then opens the page in the default
@@ -82,9 +93,10 @@ is disabled as well: it prompts before installing, and a window-less instance
 has nowhere to show that prompt - web-mode installs are updated by replacing
 them.
 
-The interface is unauthenticated by design and the page carries the
-obs-websocket password, so bind it to loopback (the default) unless the network
-is trusted.
+Browsers on other computers sign in with the login from **Tools > Web
+Interface Access** (until one is set, only this computer can use the
+interface). The connection is plain HTTP and not encrypted, so use it on a
+trusted network or behind a reverse proxy with TLS.
 
 ## Notes on this build
 
