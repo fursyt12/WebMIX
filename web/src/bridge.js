@@ -33,6 +33,23 @@ async function post(path) {
   }
 }
 
+async function postJson(path, body) {
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      return { ...(data ?? {}), ok: false, error: data?.error ?? `request failed (${response.status})` };
+    }
+    return data ?? { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message ?? err) };
+  }
+}
+
 const notAvailable = { ok: false, error: 'the WebMIX bridge is not available (OBS is not serving this page)' };
 
 /* ------------------------------------------------------------------ scenes */
@@ -119,6 +136,46 @@ export async function clearFinishedRemux() {
 
 export async function clearAllRemux() {
   return post('api/remux/clearall');
+}
+
+/* ----------------------------------------------------------------- startup */
+
+/**
+ * Settings > General, how OBS starts: `{autostart, autostartSupported,
+ * openBrowser, address}` (address is where a sign-in start will serve), or
+ * null without the bridge.
+ */
+export async function fetchStartupSettings() {
+  return get('api/startup');
+}
+
+/** Change any of `autostart` and `openBrowser`; resolves the new state. */
+export async function saveStartupSettings(settings) {
+  return postJson('api/startup', settings);
+}
+
+/* ----------------------------------------------------------- obs-websocket */
+
+/**
+ * Tools > WebSocket Server Settings, as obs-websocket's own dialog would show
+ * them: `{available, enabled, alerts, debug, port, portMin, portMax,
+ * portLocked, authRequired, password, passwordLocked, minPasswordLength,
+ * videoActive, sessions: [{address, duration, messages, identified}]}`, plus
+ * `connect: {address, port, password, passwordAvailable, url, qr}` when asked
+ * for the Connect Info. Null without the bridge.
+ */
+export async function fetchWebSocketSettings({ connectInfo = false } = {}) {
+  return get(`api/websocket${connectInfo ? '?connect=1' : ''}`);
+}
+
+/** Apply settings through the plugin's own Apply; resolves the new state. */
+export async function applyWebSocketSettings(settings) {
+  return postJson('api/websocket', settings);
+}
+
+/** Disconnect one session, by its remote address. */
+export async function kickWebSocketSession(address) {
+  return postJson('api/websocket/kick', { address });
 }
 
 export { notAvailable as bridgeUnavailable };

@@ -38,4 +38,18 @@ namespace WebMixStartup {
  */
 bool AskEndpoint(QWidget *parent, QString &host, quint16 &port, bool &remember);
 
+/* Starting with the computer (Settings > General in the web interface): an
+ * XDG autostart entry on Linux and the BSDs, the per-user Run key on Windows.
+ * The entry runs this executable with --autostart (start from its own
+ * directory) and the address and port to serve on, so it never asks. */
+
+/*! Whether this system has a sign-in autostart WebMIX knows how to set. */
+bool AutostartSupported();
+
+/*! Whether the sign-in entry exists. */
+bool AutostartEnabled();
+
+/*! Create the entry (serving on `host`:`port`) or remove it. */
+bool SetAutostart(bool enable, const QString &host, quint16 port, QString &error);
+
 } // namespace WebMixStartup

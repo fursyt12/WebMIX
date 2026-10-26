@@ -327,13 +327,9 @@ namespace {
  * The same grammar the text lookup in libobs reads: a value may be quoted, in
  * which case it runs to the closing quote (across lines if need be) and may
  * contain \n, \t, \" and \\. */
-void ReadLocaleFile(const char *relative, QJsonObject &out)
+void ReadLocaleText(const QString &path, QJsonObject &out)
 {
-	std::string path;
-	if (!GetDataFilePath(relative, path)) {
-		return;
-	}
-	QFile file(QString::fromStdString(path));
+	QFile file(path);
 	if (!file.open(QIODevice::ReadOnly)) {
 		return;
 	}
@@ -384,20 +380,50 @@ void ReadLocaleFile(const char *relative, QJsonObject &out)
 	}
 }
 
+/*! One of the frontend's own locale files, e.g. "locale/en-US.ini". */
+void ReadLocaleFile(const char *relative, QJsonObject &out)
+{
+	std::string path;
+	if (GetDataFilePath(relative, path)) {
+		ReadLocaleText(QString::fromStdString(path), out);
+	}
+}
+
+/*! A locale file a plugin ships in its own data directory. */
+void ReadModuleLocaleFile(obs_module_t *module, const QString &relative, QJsonObject &out)
+{
+	char *path = obs_find_module_file(module, relative.toUtf8().constData());
+	if (path) {
+		ReadLocaleText(QString::fromUtf8(path), out);
+		bfree(path);
+	}
+}
+
 } // namespace
 
 QJsonObject LocaleStrings()
 {
 	const QString locale = QString::fromUtf8(App()->GetLocale());
 
+	/* The Tools menu also carries obs-websocket's dialog, whose strings live
+	 * with the plugin (all prefixed "OBSWebSocket.") rather than in the
+	 * frontend's files. */
+	obs_module_t *websocket = obs_get_module("obs-websocket");
+
 	QJsonObject english;
 	ReadLocaleFile("locale/en-US.ini", english);
+	if (websocket) {
+		ReadModuleLocaleFile(websocket, QStringLiteral("locale/en-US.ini"), english);
+	}
 
 	/* A translation only has to cover what it changes; everything else is
 	 * English, exactly as OBS itself falls back. */
 	QJsonObject strings = english;
 	if (locale != QLatin1String("en-US")) {
 		ReadLocaleFile(QStringLiteral("locale/%1.ini").arg(locale).toUtf8().constData(), strings);
+		if (websocket) {
+			ReadModuleLocaleFile(websocket, QStringLiteral("locale/%1.ini").arg(locale), strings);
+		}
 	}
 
 	QJsonObject result;

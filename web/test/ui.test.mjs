@@ -93,6 +93,10 @@ test('all UI modules import cleanly without a DOM', async () => {
     '../src/ui/files.js',
     '../src/ui/remux.js',
     '../src/ui/multiview.js',
+    '../src/ui/access.js',
+    '../src/ui/websocket.js',
+    '../src/access.js',
+    '../src/login.js',
   ];
   for (const path of modules) {
     const mod = await import(path);

@@ -26,8 +26,11 @@ import { CustomDocksPanel } from './ui/custom-docks.js';
 import { loadBindings, matchBinding, isTypingTarget } from './hotkeys.js';
 import { detectHost, requestShutdown } from './host.js';
 import { fetchRemuxState } from './bridge.js';
+import { installSignInGuard } from './access.js';
 import { openFilesDialog } from './ui/files.js';
 import { openRemuxDialog } from './ui/remux.js';
+import { openAccessDialog } from './ui/access.js';
+import { openWebSocketSettingsDialog } from './ui/websocket.js';
 import { openMultiview } from './ui/multiview.js';
 import { WebGpuPreview } from './webgpu-preview.js';
 import { colorIntToHex, hexToColorInt } from './properties.js';
@@ -779,6 +782,12 @@ function buildUi() {
       case 'remuxRecordings':
         await openRemuxDialog({ onStatus: statusMessage });
         break;
+      case 'webSocketSettings':
+        await openWebSocketSettingsDialog({ onStatus: statusMessage });
+        break;
+      case 'webAccess':
+        await openAccessDialog({ onStatus: statusMessage });
+        break;
       /* Help menu: the same pages the desktop opens in the browser. */
       case 'helpPortal':
         window.open('https://obsproject.com/help', '_blank', 'noopener');
@@ -1354,6 +1363,9 @@ function saveLayout(patch) {
 /* -------------------------------------------------------------------- boot */
 
 async function boot() {
+  /* A browser on another computer that loses its session (OBS restarted, the
+   * login changed) goes back to the sign-in form instead of a dead page. */
+  installSignInGuard();
   const connection = savedConnection();
   connectScreenApi = renderConnectScreen(connection);
 

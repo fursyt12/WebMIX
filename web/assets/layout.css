@@ -2409,3 +2409,29 @@ body.obs-app {
 .obs-preview-guide {
   background: #00FF00;
 }
+
+/* ------------------------------------- Tools > WebSocket Server Settings */
+
+/* A field with its button beside it: the password and Generate Password, and
+   each Connect Info value with its Copy. */
+.webmix-password-row {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+}
+
+.webmix-password-row > .obs-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.webmix-session-table td,
+.webmix-session-table th {
+  white-space: nowrap;
+}
+
+/* The plugin draws the code on a white 236 px square; keep its modules sharp. */
+.webmix-connect-qr {
+  align-self: center;
+  image-rendering: pixelated;
+}

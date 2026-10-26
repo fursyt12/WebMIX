@@ -17,10 +17,13 @@
 
 #include "WebMixServer.hpp"
 
+#include "WebMixAuth.hpp"
 #include "WebMixBridge.hpp"
 #include "WebMixControl.hpp"
 #include "WebMixPreview.hpp"
 #include "WebMixRemux.hpp"
+#include "WebMixStartup.hpp"
+#include "WebMixWebSocket.hpp"
 
 #include "OBSApp.hpp"
 
@@ -124,6 +127,56 @@ void OnFrontendExit(enum obs_frontend_event event, void *self)
 	}
 }
 
+/*! What a browser on another machine may fetch before it has signed in: the
+ *  sign-in page and its two scripts, the theme it is drawn with, and OBS's
+ *  strings. Nothing here controls OBS or reads its files. */
+bool OpenWithoutSignIn(const QString &path)
+{
+	const QString decoded = QUrl::fromPercentEncoding(path.toUtf8());
+	if (decoded.contains(QLatin1String("..")) || decoded.contains(QLatin1Char('\\'))) {
+		return false;
+	}
+	return decoded == QLatin1String("/login.html") || decoded == QLatin1String("/src/login.js") ||
+	       decoded == QLatin1String("/src/i18n.js") || decoded.startsWith(QLatin1String("/assets/")) ||
+	       decoded == QLatin1String("/api/locale");
+}
+
+/*! Where a page that needs a sign-in is sent. Both the form and the address to
+ *  return to are relative to the interface's root, so this also works behind a
+ *  reverse proxy that serves the interface under a path of its own. */
+QByteArray SignInLocation(const QString &target)
+{
+	const QString path = target.section(QLatin1Char('?'), 0, 0);
+	const QByteArray up = QByteArray("../").repeated(qMax(0, static_cast<int>(path.count(QLatin1Char('/'))) - 1));
+	return up + "login.html?next=" + QUrl::toPercentEncoding(QStringLiteral("./") + target.mid(1));
+}
+
+/*! Whether a state-changing request comes from a page served here.
+ *
+ * Any site the user has open can make the browser send requests to this
+ * server - to a loopback one too - but it cannot forge the Origin header the
+ * browser puts on them. Requests without one (curl, scripts) are not a
+ * browser acting for some other page. Behind a TLS reverse proxy the scheme
+ * differs and the proxy may rewrite Host, so the origin's authority is
+ * compared with Host and X-Forwarded-Host. */
+bool SameOrigin(const QByteArray &headers)
+{
+	QByteArray origin = WebMixAuth::HeaderValue(headers, "origin");
+	if (origin.isEmpty()) {
+		return true;
+	}
+	const qsizetype scheme = origin.indexOf("://");
+	if (scheme < 0) {
+		return false; /* "null": a sandboxed frame or a file */
+	}
+	origin = origin.mid(scheme + 3).toLower();
+
+	const QByteArray host = WebMixAuth::HeaderValue(headers, "host").toLower();
+	const QByteArray forwardedHost =
+		WebMixAuth::HeaderValue(headers, "x-forwarded-host").split(',').first().trimmed().toLower();
+	return origin == host || (!forwardedHost.isEmpty() && origin == forwardedHost);
+}
+
 /*! Path of obs-websocket's config.json, or an empty string. */
 QString ObsWebSocketConfigPath()
 {
@@ -217,18 +270,26 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 			      address == QHostAddress(QHostAddress::AnyIPv6);
 	const QHostAddress reachable = wildcard ? QHostAddress(QHostAddress::LocalHost) : address;
 	url = QStringLiteral("http://%1:%2/").arg(reachable.toString()).arg(server->serverPort());
+	WebMixAuth::Start(server->serverPort());
 
-	/* The UI is unauthenticated by design (it is a local control surface) and
-	 * it has to hand the browser the obs-websocket password, so binding beyond
-	 * loopback exposes both control of OBS and read access to itsconfig
-	 * directory to anyone who can reach the port. */
+	/* Browsers on this machine need no sign-in; every other one signs in with
+	 * the login from Tools > Web Interface Access. That is plain HTTP, so the
+	 * login (and everything after it) crosses the network unencrypted. */
 	if (!address.isLoopback()) {
 		blog(LOG_WARNING, "[WebMIX] ---------------------------------------------------------------");
 		blog(LOG_WARNING, "[WebMIX] The web interface is reachable from the network (%s).",
 		     qUtf8Printable(address.toString()));
-		blog(LOG_WARNING, "[WebMIX] It is not authenticated and exposes the obs-websocket password, so anyone "
-				  "who can reach this port can control OBS. Use it only on a trusted network, or put a "
-				  "reverse proxy with authentication in front of it.");
+		if (WebMixAuth::Configured()) {
+			blog(LOG_WARNING,
+			     "[WebMIX] Other machines have to sign in as '%s'. The connection is not "
+			     "encrypted: use it on a trusted network, or behind a reverse proxy with TLS.",
+			     qUtf8Printable(WebMixAuth::Username()));
+		} else {
+			blog(LOG_WARNING,
+			     "[WebMIX] No login is set, so only this machine can use it. Set one in "
+			     "Tools > Web Interface Access (from %s on this machine).",
+			     qUtf8Printable(url));
+		}
 		blog(LOG_WARNING, "[WebMIX] ---------------------------------------------------------------");
 	}
 	blog(LOG_INFO, "[WebMIX] ---------------------------------------------------------------");
@@ -369,6 +430,32 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 	const QUrlQuery query(target.section('?', 1));
 	const QString body = QString::fromUtf8(request.mid(request.indexOf("\r\n\r\n") + 4));
 	UNUSED_PARAMETER(body);
+
+	/* --- who is asking ------------------------------------------------------ */
+	const QByteArray headers = request.left(request.indexOf("\r\n\r\n"));
+	if (method != "GET" && method != "HEAD" && !SameOrigin(headers)) {
+		blog(LOG_WARNING, "[WebMIX] Refused %s %s from another site (%s)", method.constData(),
+		     qUtf8Printable(path), WebMixAuth::HeaderValue(headers, "origin").constData());
+		SendError(socket, 403, "Cross-site request refused");
+		return;
+	}
+
+	const WebMixAuth::Client client = WebMixAuth::Identify(socket->peerAddress(), headers);
+	if (path.startsWith(QLatin1String("/api/auth/"))) {
+		HandleAuth(socket, method, path, request.mid(request.indexOf("\r\n\r\n") + 4), client);
+		return;
+	}
+	if (!client.Authorized() && !OpenWithoutSignIn(path)) {
+		/* A page is sent to the sign-in form, which comes back here when it
+		 * is done; anything a script asked for gets a 401 it can act on. */
+		if ((method == "GET" || method == "HEAD") && !path.startsWith(QLatin1String("/api/")) &&
+		    path != QLatin1String("/obs-config.json")) {
+			SendRedirect(socket, SignInLocation(target));
+			return;
+		}
+		SendJson(socket, R"({"ok":false,"error":"Sign-in required","signIn":"login.html"})", 401);
+		return;
+	}
 
 	/* --- the native control channel ---------------------------------------- */
 	if (path.startsWith(QLatin1String("/api/obs/"))) {
@@ -647,6 +734,79 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		return;
 	}
 
+	/* --- Settings > General: starting with the computer --------------------- */
+	if (path == "/api/startup") {
+		config_t *appConfig = App()->GetAppConfig();
+		QString error;
+		bool ok = true;
+		if (method == "POST") {
+			const QJsonObject requestData =
+				QJsonDocument::fromJson(request.mid(request.indexOf("\r\n\r\n") + 4)).object();
+			if (requestData.contains("autostart")) {
+				/* The entry serves where this instance serves now. */
+				ok = WebMixStartup::SetAutostart(requestData.value("autostart").toBool(),
+								 server->serverAddress().toString(),
+								 server->serverPort(), error);
+			}
+			if (ok && requestData.contains("openBrowser")) {
+				config_set_bool(appConfig, "General", "WebOpenBrowser",
+						requestData.value("openBrowser").toBool());
+				ok = config_save_safe(appConfig, "tmp", nullptr) == CONFIG_SUCCESS;
+				if (!ok) {
+					error = QStringLiteral("Could not save global.ini.");
+				}
+			}
+		} else if (method != "GET" && method != "HEAD") {
+			SendError(socket, 405, "Method not allowed");
+			return;
+		}
+
+		QJsonObject state;
+		state["ok"] = ok;
+		if (!ok) {
+			state["error"] = error;
+			blog(LOG_WARNING, "[WebMIX] /api/startup failed: %s", qUtf8Printable(error));
+		}
+		state["autostartSupported"] = WebMixStartup::AutostartSupported();
+		state["autostart"] = WebMixStartup::AutostartEnabled();
+		/* --no-browser for every launch; the command-line flag still wins. */
+		state["openBrowser"] = config_get_bool(appConfig, "General", "WebOpenBrowser");
+		state["address"] =
+			QStringLiteral("%1:%2").arg(server->serverAddress().toString()).arg(server->serverPort());
+		SendJson(socket, QJsonDocument(state).toJson(QJsonDocument::Compact), ok ? 200 : 400);
+		return;
+	}
+
+	/* --- Tools > WebSocket Server Settings (WebMixWebSocket) --------------- */
+	if (path == "/api/websocket" || path == "/api/websocket/kick") {
+		if (path == "/api/websocket" && (method == "GET" || method == "HEAD")) {
+			const QJsonObject state =
+				WebMixWebSocket::State(QueryValue(query, "connect") == QLatin1String("1"));
+			SendJson(socket, QJsonDocument(state).toJson(QJsonDocument::Compact));
+			return;
+		}
+		if (method != "POST") {
+			SendError(socket, 405, "Method not allowed");
+			return;
+		}
+
+		const QJsonObject requestData =
+			QJsonDocument::fromJson(request.mid(request.indexOf("\r\n\r\n") + 4)).object();
+		QString error;
+		const bool ok = path == "/api/websocket"
+					? WebMixWebSocket::Apply(requestData, error)
+					: WebMixWebSocket::Kick(requestData.value("address").toString(), error);
+
+		QJsonObject result = WebMixWebSocket::State(false);
+		result["ok"] = ok;
+		if (!ok) {
+			result["error"] = error;
+			blog(LOG_WARNING, "[WebMIX] %s failed: %s", qUtf8Printable(path), qUtf8Printable(error));
+		}
+		SendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact), ok ? 200 : 400);
+		return;
+	}
+
 	/* --- operations obs-websocket has no request for ----------------------- */
 	if (path.startsWith("/api/hotkeys") || path.startsWith("/api/scenes/") ||
 	    path.startsWith("/api/transitions/")) {
@@ -844,6 +1004,137 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		return;
 	}
 	SendFile(socket, canonical);
+}
+
+/* --------------------------------------------------------------- sign-in -- */
+
+QJsonObject WebMixServer::AccessState(const WebMixAuth::Client &client) const
+{
+	QJsonObject state;
+	state["configured"] = WebMixAuth::Configured();
+	state["username"] = WebMixAuth::Username();
+	state["sessions"] = WebMixAuth::SessionCount();
+	state["minPasswordLength"] = WebMixAuth::MinPasswordLength();
+	state["local"] = client.local;
+	state["user"] = client.user;
+	/* Whether anybody else can reach the interface at all. */
+	state["network"] = server && !server->serverAddress().isLoopback();
+	state["port"] = server ? static_cast<int>(server->serverPort()) : 0;
+	return state;
+}
+
+void WebMixServer::HandleAuth(QTcpSocket *socket, const QByteArray &method, const QString &path, const QByteArray &body,
+			      const WebMixAuth::Client &client)
+{
+	const auto json = [](const QJsonObject &object) {
+		return QJsonDocument(object).toJson(QJsonDocument::Compact);
+	};
+
+	/* What the sign-in page needs to know; open to everybody, and naming
+	 * nobody but the caller. */
+	if (path == "/api/auth/status") {
+		QJsonObject status;
+		status["local"] = client.local;
+		status["authorized"] = client.Authorized();
+		status["user"] = client.user;
+		status["configured"] = WebMixAuth::Configured();
+		SendJson(socket, json(status));
+		return;
+	}
+
+	if (path == "/api/auth/config" && (method == "GET" || method == "HEAD")) {
+		if (!client.Authorized()) {
+			SendJson(socket, R"({"ok":false,"error":"Sign-in required"})", 401);
+			return;
+		}
+		SendJson(socket, json(AccessState(client)));
+		return;
+	}
+
+	if (method != "POST") {
+		SendError(socket, 405, "Method not allowed");
+		return;
+	}
+
+	const QJsonObject request = QJsonDocument::fromJson(body).object();
+
+	if (path == "/api/auth/login") {
+		QString token;
+		int retryAfter = 0;
+		const WebMixAuth::LoginResult outcome = WebMixAuth::Login(client, request.value("username").toString(),
+									  request.value("password").toString(), token,
+									  retryAfter);
+
+		QJsonObject result;
+		result["ok"] = outcome == WebMixAuth::LoginResult::Ok;
+		if (retryAfter > 0) {
+			result["retryAfter"] = retryAfter;
+		}
+		switch (outcome) {
+		case WebMixAuth::LoginResult::Ok:
+			result["user"] = request.value("username").toString();
+			SendJson(socket, json(result), 200, "Set-Cookie: " + WebMixAuth::SessionCookie(token) + "\r\n");
+			return;
+		case WebMixAuth::LoginResult::NotConfigured:
+			result["error"] = QStringLiteral("not-configured");
+			SendJson(socket, json(result), 403);
+			return;
+		case WebMixAuth::LoginResult::Throttled:
+			result["error"] = QStringLiteral("throttled");
+			SendJson(socket, json(result), 429, "Retry-After: " + QByteArray::number(retryAfter) + "\r\n");
+			return;
+		case WebMixAuth::LoginResult::Invalid:
+			result["error"] = QStringLiteral("invalid");
+			SendJson(socket, json(result), 401);
+			return;
+		}
+		return;
+	}
+
+	if (path == "/api/auth/logout") {
+		WebMixAuth::Logout(client.token);
+		SendJson(socket, R"({"ok":true})", 200, "Set-Cookie: " + WebMixAuth::ExpiredCookie() + "\r\n");
+		return;
+	}
+
+	if (path == "/api/auth/config") {
+		if (!client.Authorized()) {
+			SendJson(socket, R"({"ok":false,"error":"Sign-in required"})", 401);
+			return;
+		}
+
+		QString error;
+		bool ok = true;
+		if (request.value("remove").toBool()) {
+			/* Only from this machine: a browser elsewhere would be locking
+			 * every other one out, itself included once it signs out. */
+			if (!client.local) {
+				ok = false;
+				error = QStringLiteral("remote-remove");
+			} else {
+				WebMixAuth::ClearCredentials();
+			}
+		} else {
+			ok = WebMixAuth::SetCredentials(request.value("username").toString(),
+							request.value("password").toString(), client.token, error);
+		}
+
+		/* The caller's own session survives a change; re-read it so the
+		 * reply names the new user. */
+		WebMixAuth::Client after = client;
+		if (!client.token.isEmpty() && ok) {
+			after.user = request.value("remove").toBool() ? QString() : WebMixAuth::Username();
+		}
+		QJsonObject result = AccessState(after);
+		result["ok"] = ok;
+		if (!ok) {
+			result["error"] = error;
+		}
+		SendJson(socket, json(result), ok ? 200 : 400);
+		return;
+	}
+
+	SendError(socket, 404, "Unknown sign-in endpoint");
 }
 
 /* ------------------------------------------------------- control channel -- */
@@ -1050,17 +1341,31 @@ void WebMixServer::SendFile(QTcpSocket *socket, const QString &path, int status)
 	socket->disconnectFromHost();
 }
 
-void WebMixServer::SendJson(QTcpSocket *socket, const QByteArray &json, int status)
+void WebMixServer::SendJson(QTcpSocket *socket, const QByteArray &json, int status, const QByteArray &headers)
 {
 	QByteArray header;
 	header += "HTTP/1.1 " + QByteArray::number(status) + " OK\r\n";
 	header += "Content-Type: application/json; charset=utf-8\r\n";
 	header += "Content-Length: " + QByteArray::number(json.size()) + "\r\n";
 	header += "Cache-Control: no-store\r\n";
+	header += headers;
 	header += "Connection: close\r\n\r\n";
 
 	socket->write(header);
 	socket->write(json);
+	socket->disconnectFromHost();
+}
+
+void WebMixServer::SendRedirect(QTcpSocket *socket, const QByteArray &location)
+{
+	QByteArray header;
+	header += "HTTP/1.1 303 See Other\r\n";
+	header += "Location: " + location + "\r\n";
+	header += "Content-Length: 0\r\n";
+	header += "Cache-Control: no-store\r\n";
+	header += "Connection: close\r\n\r\n";
+
+	socket->write(header);
 	socket->disconnectFromHost();
 }
 

@@ -26,6 +26,8 @@ target_sources(
   obs-studio
   PRIVATE
     webmix/OBSBasic_WebMix.cpp
+    webmix/WebMixAuth.cpp
+    webmix/WebMixAuth.hpp
     webmix/WebMixBridge.cpp
     webmix/WebMixFiles.cpp
     webmix/WebMixBridge.hpp
@@ -46,6 +48,8 @@ target_sources(
     webmix/WebMixServer.hpp
     webmix/WebMixStartup.cpp
     webmix/WebMixStartup.hpp
+    webmix/WebMixWebSocket.cpp
+    webmix/WebMixWebSocket.hpp
 )
 
 # Let a build-tree run of OBS find the frontend without installation.

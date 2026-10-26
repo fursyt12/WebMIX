@@ -33,7 +33,15 @@ import {
   normalizeCombo,
   describeCombo,
 } from '../hotkeys.js';
-import { fetchHotkeys, bindHotkey, clearHotkey, fetchEncoderOptions } from '../bridge.js';
+import {
+  fetchHotkeys,
+  bindHotkey,
+  clearHotkey,
+  fetchEncoderOptions,
+  fetchStartupSettings,
+  saveStartupSettings,
+} from '../bridge.js';
+import { t } from '../i18n.js';
 
 /* ------------------------------------------------------- generic properties */
 
@@ -895,8 +903,8 @@ export async function openAdvancedAudioDialog({ api, store, onStatus, onChanged 
 /* ------------------------------------------------------------------ settings */
 
 export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
-  const tabs = ['Stream', 'Output', 'Video', 'Audio', 'Advanced', 'Hotkeys'];
-  let active = 'Stream';
+  const tabs = ['General', 'Stream', 'Output', 'Video', 'Audio', 'Advanced', 'Hotkeys'];
+  let active = 'General';
   const body = h('div.obs-settings-body.obs-scroll');
   const tabStrip = h('div.obs-tabs');
   const dialog = openDialog({ title: 'Settings', width: 820, height: 620, closable: true });
@@ -921,7 +929,8 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
     clear(body);
     body.appendChild(h('div.obs-empty', { text: 'Loading...' }));
     try {
-      if (active === 'Video') await renderVideo();
+      if (active === 'General') await renderGeneral();
+      else if (active === 'Video') await renderVideo();
       else if (active === 'Stream') await renderStream();
       else if (active === 'Output') await renderOutput();
       else if (active === 'Audio') await renderAudio();
@@ -939,6 +948,57 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
       control,
       hint ? h('div.obs-hint.obs-muted', { text: hint }) : null,
     ]);
+
+  /* How OBS starts: WebMIX's own options, so a studio machine can come up on
+   * its own and serve the interface without a browser window in the way. */
+  async function renderGeneral() {
+    const startup = await fetchStartupSettings();
+    clear(body);
+    if (!startup) {
+      body.append(h('div.obs-hint.obs-muted', { text: 'These options need OBS to serve this page.' }));
+      return;
+    }
+
+    const checkRow = (label, checked, disabled = false) => {
+      const input = h('input.obs-checkbox', { type: 'checkbox', checked, disabled });
+      return { input, row: h('label.obs-checkbox', {}, [input, h('span', { text: label, raw: true })]) };
+    };
+    const autostart = checkRow(t('WebMix.Startup.Autostart'), startup.autostart, !startup.autostartSupported);
+    const noBrowser = checkRow(t('WebMix.Startup.NoBrowser'), !startup.openBrowser);
+
+    body.append(
+      h('div.obs-group-title', { text: 'WebMIX', raw: true }),
+      h('div.obs-settings-group', {}, [
+        autostart.row,
+        h('div.obs-hint.obs-muted', {
+          text: startup.autostartSupported
+            ? t('WebMix.Startup.AutostartHint', startup.address)
+            : t('WebMix.Startup.AutostartUnsupported'),
+          raw: true,
+        }),
+        noBrowser.row,
+      ]),
+      h('div.obs-dialog-actions', {}, [
+        h('button.obs-btn.primary', {
+          type: 'button',
+          text: 'Apply',
+          on: {
+            click: async () => {
+              const changes = { openBrowser: !noBrowser.input.checked };
+              if (startup.autostartSupported) changes.autostart = autostart.input.checked;
+              const result = await saveStartupSettings(changes);
+              if (result?.ok) {
+                onStatus?.(t('WebMix.Startup.Saved'), 'info');
+                onSaved?.();
+              } else {
+                onStatus?.(result?.error ?? 'Could not save the startup settings', 'error');
+              }
+            },
+          },
+        }),
+      ])
+    );
+  }
 
   async function renderVideo() {
     const video = await api.getVideoSettings();

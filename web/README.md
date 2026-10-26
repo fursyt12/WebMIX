@@ -55,7 +55,8 @@ it no longer changes anything. What web mode does:
 * starts the built-in web server (QTcpServer-based) that serves this directory
   and carries the native control channel the page talks to;
 * opens the page in the default browser on start, unless `--no-browser` was
-  given or `[General] WebOpenBrowser=false` is set in `global.ini`;
+  given or `[General] WebOpenBrowser=false` is set in `global.ini` (the
+  *Don't open the browser* box in **Settings > General**);
 * also enables obs-websocket for *other* clients, which the web interface does
   not use itself (set `[General] WebSocketAutoEnable=false` to leave the plugin
   exactly as configured);
@@ -92,6 +93,13 @@ an upgraded install on the native UI.
 | `GET /api/obs/requests` | Every request type this build implements. |
 | `GET /api/obs/events` | The **event stream**: Server-Sent Events, one `data:` frame per OBS event (`{eventType, eventIntent, eventData}`). Optional `?intents=<bitmask>`. |
 | `GET /obs-config.json` | obs-websocket port/password/enabled, read from OBS's config. |
+| `GET /api/auth/status` | Open to everyone: `{local, authorized, user, configured}` for the sign-in page. |
+| `POST /api/auth/login` | `{username, password}` → a session cookie, or 401 `invalid` / 403 `not-configured` / 429 `throttled` (with `Retry-After`). |
+| `POST /api/auth/logout` | Ends this browser's session. |
+| `GET\|POST /api/auth/config` | **Tools > Web Interface Access**: who may sign in. POST `{username, password}` sets the login (and signs every other browser out), `{remove: true}` removes it (only from this computer). |
+| `GET\|POST /api/websocket` | **Tools > WebSocket Server Settings**: obs-websocket's settings and connected sessions, applied through the plugin's own dialog. `?connect=1` adds the Connect Info (address, port, password, QR code). |
+| `POST /api/websocket/kick` | Disconnects one obs-websocket session (`{address}`). |
+| `GET\|POST /api/startup` | **Settings > General**: start at sign-in (`autostart`) and open the browser on start (`openBrowser`). |
 | `POST /api/shutdown` | Shuts OBS down. This is what **File > Exit** calls, so OBS can be stopped from the browser. Refused with 409 while a remux is running unless `force=1` is passed. |
 | `GET /api/preview.mjpg` | Live preview: JPEG frames as `multipart/x-mixed-replace`. `view=program` is the program output itself (transitions included); `source=<name>` renders one scene or source. Also `width`, `height`, `fps` (capped by OBS's own rate), `quality`. A client that cannot keep up gets fewer frames, never a backlog. |
 | `GET /api/preview.jpg` | A single preview frame. |
@@ -164,8 +172,22 @@ process:
 * **The "already running" prompt** does not appear in web mode; the second
   instance logs and exits (`frontend/obs-main.cpp`).
 
-Suggested autostart command line (Windows shortcut / Linux `.desktop`
-`Exec=`):
+**Settings > General** sets it up from the browser:
+
+* *Start WebMIX when I sign in to this computer* writes an autostart entry -
+  `~/.config/autostart/webmix.desktop` on Linux (XDG autostart), the per-user
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value `WebMIX` on
+  Windows. It runs this same executable with `--autostart --web-host <address>
+  --web-port <port>`: the address and port this instance serves on now, so it
+  never asks, and `--autostart` makes OBS start from its own directory, as a
+  shortcut would (a login item starts in a system directory, and OBS on
+  Windows finds its data relative to the working directory). Unticking it
+  removes the entry. Not available on macOS.
+* *Don't open the browser when OBS starts (--no-browser)* sets
+  `[General] WebOpenBrowser=false`, for every launch.
+
+By hand, the equivalent command line (Windows shortcut / Linux `.desktop`
+`Exec=`) is:
 
 ```
 obs --web-port 4460 --no-browser
@@ -339,18 +361,42 @@ Everything below operates the **live** OBS instance:
 
 ## Security
 
-The embedded server is deliberately **unauthenticated**: it exists to serve a
-local control surface that is reachable from the browser, and requiring a
-credential the browser has no way to obtain would only add a step, not a
-boundary. It binds to `127.0.0.1` by default. `/obs-config.json` still hands out
-the obs-websocket password, because the fallback transport has to connect
-somehow - but the native channel the page normally uses needs no secret at all.
+The server binds to `127.0.0.1` by default, and **browsers on this computer
+never sign in**: the interface is a local control surface, like the desktop
+window it replaces.
 
-Binding it beyond loopback (`--web-host 0.0.0.0`, or `WebHost` in
-`global.ini`) therefore exposes both control of OBS and read access to its
-config, log and recording directories to anyone who can reach the port. OBS logs
-a warning when that happens. On an untrusted network, put an authenticating
-reverse proxy in front of it.
+**Every other browser signs in** with the one login set in **Tools > Web
+Interface Access** (`frontend/webmix/WebMixAuth.cpp`). Until a login is set,
+other computers cannot open the interface at all; until they have signed in,
+they get nothing but `login.html`, its two scripts, the theme, OBS's strings
+and `/api/auth/*` - a page request is redirected to the sign-in form, anything
+else is answered 401.
+
+* "This computer" means a loopback peer, with no `X-Forwarded-For` /
+  `Forwarded` / `X-Real-IP` header (a reverse proxy on the same machine relays
+  other people), addressed by a loopback `Host` (`localhost`, `127.0.0.1`,
+  `[::1]`) - a page opened through a DNS name that points here signs in too,
+  which also closes the door on DNS rebinding.
+* The password is stored in `global.ini` (`[General] WebAuthUser`,
+  `WebAuthPassword`) as salted PBKDF2-SHA256 (100 000 iterations), never in
+  clear. At least 8 characters.
+* A sign-in opens a session carried in an `HttpOnly`, `SameSite=Strict`
+  cookie named after the port. Sessions live in memory: they end after a week
+  unused, a month in any case, when the login is changed or removed, and when
+  OBS restarts. An open page whose session ends goes back to the sign-in form.
+* Five wrong attempts from one address lock it out for 30 s, doubling with
+  every further failure up to 15 minutes.
+* State-changing requests (anything but GET/HEAD) whose `Origin` is another
+  site are refused with 403, so a page elsewhere cannot drive OBS through a
+  browser that can reach it - on this computer either.
+* The login can be changed from anywhere it is signed in, but removed only on
+  this computer.
+
+The connection is **plain HTTP**: the password and everything after it cross
+the network unencrypted. Use it on a trusted network, or put a reverse proxy
+with TLS in front of it (forward `Host`, or `X-Forwarded-Host`, so the Origin
+check matches). `/obs-config.json` hands the obs-websocket password to signed-in
+browsers, because the fallback transport has to connect somehow.
 
 File access is confined to the directories OBS itself uses; every request is
 validated (no `..`, no absolute paths, canonical path must stay inside the root,

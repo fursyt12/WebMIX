@@ -1054,6 +1054,17 @@ int main(int argc, char *argv[])
 			 * focus with a browser window. */
 			opt_web_open_browser = false;
 
+		} else if (arg_is(argv[i], "--autostart", nullptr)) {
+			/* WebMIX: the sign-in entry (Settings > General). A login item
+			 * starts in some system directory, and OBS on Windows finds its
+			 * data relative to the working directory - start from the
+			 * executable's own, as a shortcut or the updater does. */
+			char *directory = os_get_executable_path_ptr("");
+			if (directory) {
+				os_chdir(directory);
+				bfree(directory);
+			}
+
 		} else if (arg_is(argv[i], "--web-choose", nullptr)) {
 			/* Ask for the address and port even if the answer was
 			 * remembered before. */
@@ -1154,6 +1165,7 @@ int main(int argc, char *argv[])
 				"       obs-websocket is not required, but is still started for other clients.\n"
 				"--no-web, --native: Start the classic OBS window instead of the web interface.\n"
 				"--no-browser: Do not open the web interface in a browser on start.\n"
+				"--autostart: Start from the executable's directory (the sign-in entry uses this).\n"
 				"--web-port <port>: Port for the web interface (default 4456); skips the startup chooser.\n"
 				"--web-host <address>: Address for the web interface (default 127.0.0.1; use 0.0.0.0 for the LAN).\n"
 				"       Giving either one skips the startup address chooser.\n"

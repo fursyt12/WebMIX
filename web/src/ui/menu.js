@@ -175,6 +175,10 @@ export const MENU_TREE = [
       { id: 'actionOpenPluginManager', label: 'Plugin Manager', action: 'openPluginManager' },
       { id: 'actionScripts', label: 'Scripts', action: 'openScripts' },
       sep(),
+      /* Below the separator is where plugins add theirs: obs-websocket's
+       * dialog, then WebMIX's own. */
+      { id: 'webSocketSettings', label: 'WebSocket Server Settings', action: 'webSocketSettings' },
+      { id: 'webInterfaceAccess', label: 'Web Interface Access', action: 'webAccess' },
     ],
   },
   {

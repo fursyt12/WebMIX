@@ -20,21 +20,56 @@
 #include <QAbstractSocket>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QHostAddress>
 #include <QLabel>
 #include <QNetworkAddressEntry>
 #include <QNetworkInterface>
 #include <QPushButton>
+#include <QSettings>
 #include <QSpinBox>
+#include <QStandardPaths>
+#include <QStringList>
 #include <QVBoxLayout>
 #include <QWidget>
 
 namespace WebMixStartup {
 
 namespace {
+
+/*! What the sign-in entry passes: start from the executable's directory, and
+ *  serve where this instance serves now, which also skips the chooser. */
+QStringList AutostartArguments(const QString &host, quint16 port)
+{
+	return {QStringLiteral("--autostart"), QStringLiteral("--web-host"), host, QStringLiteral("--web-port"),
+		QString::number(port)};
+}
+
+#if defined(_WIN32)
+const QString kRunKey = QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+const QString kRunValue = QStringLiteral("WebMIX");
+#elif !defined(__APPLE__)
+QString DesktopEntryPath()
+{
+	return QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
+	       QStringLiteral("/autostart/webmix.desktop");
+}
+
+/*! One argument of a desktop entry's Exec key, quoted as the spec asks. */
+QString ExecArgument(QString value)
+{
+	for (const char *special : {"\\", "\"", "`", "$"}) {
+		value.replace(QLatin1String(special), QLatin1Char('\\') + QLatin1String(special));
+	}
+	return QLatin1Char('"') + value + QLatin1Char('"');
+}
+#endif
 
 /*! Every address the machine can be reached on, best first.
  *
@@ -54,7 +89,7 @@ void CollectChoices(QComboBox *combo, const QString &current)
 
 	add(QStringLiteral("127.0.0.1"), QObject::tr("This computer only — 127.0.0.1 (recommended)"));
 	add(QStringLiteral("0.0.0.0"),
-	    QObject::tr("All interfaces — 0.0.0.0 (reachable from the network, unauthenticated)"));
+	    QObject::tr("All interfaces — 0.0.0.0 (reachable from the network, with sign-in)"));
 
 	for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
 		const auto flags = iface.flags();
@@ -112,8 +147,10 @@ bool AskEndpoint(QWidget *parent, QString &host, quint16 &port, bool &remember)
 
 	layout->addLayout(form);
 
-	auto *warning = new QLabel(QObject::tr("Anything other than 127.0.0.1 exposes an interface that has no "
-					       "authentication. Use it only on a trusted network."),
+	auto *warning = new QLabel(QObject::tr("Browsers on other computers have to sign in with the login set in "
+					       "Tools > Web Interface Access; until one is set, only this computer "
+					       "can use the interface. The connection is not encrypted, so use it on "
+					       "a trusted network."),
 				   &dialog);
 	warning->setWordWrap(true);
 	layout->addWidget(warning);
@@ -138,6 +175,91 @@ bool AskEndpoint(QWidget *parent, QString &host, quint16 &port, bool &remember)
 	port = static_cast<quint16>(portSpin->value());
 	remember = rememberBox->isChecked();
 	return true;
+}
+
+bool AutostartSupported()
+{
+#ifdef __APPLE__
+	return false;
+#else
+	return true;
+#endif
+}
+
+bool AutostartEnabled()
+{
+#if defined(_WIN32)
+	return QSettings(kRunKey, QSettings::NativeFormat).contains(kRunValue);
+#elif defined(__APPLE__)
+	return false;
+#else
+	return QFileInfo::exists(DesktopEntryPath());
+#endif
+}
+
+bool SetAutostart(bool enable, const QString &host, quint16 port, QString &error)
+{
+	const QString program = QCoreApplication::applicationFilePath();
+
+#if defined(_WIN32)
+	QSettings run(kRunKey, QSettings::NativeFormat);
+	if (enable) {
+		const QString command = QLatin1Char('"') + QDir::toNativeSeparators(program) + QLatin1Char('"') +
+					QLatin1Char(' ') + AutostartArguments(host, port).join(QLatin1Char(' '));
+		run.setValue(kRunValue, command);
+	} else {
+		run.remove(kRunValue);
+	}
+	run.sync();
+	if (run.status() != QSettings::NoError) {
+		error = QStringLiteral("Could not write the Run key in the registry.");
+		return false;
+	}
+	return true;
+#elif defined(__APPLE__)
+	Q_UNUSED(enable);
+	Q_UNUSED(host);
+	Q_UNUSED(port);
+	Q_UNUSED(program);
+	error = QStringLiteral("Starting at sign-in is not available on macOS.");
+	return false;
+#else
+	const QString path = DesktopEntryPath();
+	if (!enable) {
+		if (QFile::exists(path) && !QFile::remove(path)) {
+			error = QStringLiteral("Could not remove %1.").arg(path);
+			return false;
+		}
+		return true;
+	}
+
+	if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+		error = QStringLiteral("Could not create %1.").arg(QFileInfo(path).absolutePath());
+		return false;
+	}
+	QStringList exec{ExecArgument(program)};
+	for (const QString &argument : AutostartArguments(host, port)) {
+		exec << ExecArgument(argument);
+	}
+	const QString entry =
+		QStringLiteral("[Desktop Entry]\n"
+			       "Type=Application\n"
+			       "Name=WebMIX\n"
+			       "Comment=OBS Studio with the WebMIX browser interface, started at sign-in\n"
+			       "Exec=%1\n"
+			       "Path=%2\n"
+			       "Icon=com.obsproject.Studio\n"
+			       "Terminal=false\n"
+			       "X-GNOME-Autostart-enabled=true\n")
+			.arg(exec.join(QLatin1Char(' ')), QFileInfo(program).absolutePath());
+
+	QFile file(path);
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(entry.toUtf8()) < 0) {
+		error = QStringLiteral("Could not write %1.").arg(path);
+		return false;
+	}
+	return true;
+#endif
 }
 
 } // namespace WebMixStartup

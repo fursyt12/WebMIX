@@ -247,28 +247,27 @@ void EnsureWebSocketServerEnabled()
 		file.close();
 	}
 
-	if (config.value("server_enabled").toBool(false)) {
+	/* Earlier WebMIX versions wrote first_load=false next to an empty password,
+	 * which kept the plugin from generating the password it makes on a first
+	 * start: authentication on, and nothing to authenticate with. Let it make
+	 * one on this start instead, as it would have then. */
+	bool repaired = false;
+	if (config.value("server_password").toString().isEmpty() && config.contains("first_load") &&
+	    !config.value("first_load").toBool(true)) {
+		config.remove("first_load");
+		repaired = true;
+	}
+
+	const bool enabled = config.value("server_enabled").toBool(false);
+	if (enabled && !repaired) {
 		blog(LOG_INFO, "[WebMIX] obs-websocket server is enabled (port %d)",
 		     config.value("server_port").toInt(4455));
 		return;
 	}
 
+	/* Everything else is the plugin's: its defaults (port 4455, authentication
+	 * on) are the desktop's, and on a first start it generates the password. */
 	config["server_enabled"] = true;
-	if (!config.contains("server_port")) {
-		config["server_port"] = 4455;
-	}
-	if (!config.contains("server_password")) {
-		config["server_password"] = QString();
-	}
-	if (!config.contains("auth_required")) {
-		config["auth_required"] = true;
-	}
-	if (!config.contains("alerts_enabled")) {
-		config["alerts_enabled"] = false;
-	}
-	if (!config.contains("first_load")) {
-		config["first_load"] = false;
-	}
 
 	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
 		blog(LOG_ERROR, "[WebMIX] Could not write %s: %s", path, qUtf8Printable(file.errorString()));
@@ -277,10 +276,15 @@ void EnsureWebSocketServerEnabled()
 	file.write(QJsonDocument(config).toJson(QJsonDocument::Indented));
 	file.close();
 
-	blog(LOG_INFO,
-	     "[WebMIX] Enabled the obs-websocket server (port %d) for third-party clients; the "
-	     "web interface itself uses the native control service",
-	     config.value("server_port").toInt(4455));
+	if (repaired) {
+		blog(LOG_INFO, "[WebMIX] obs-websocket had no password; it generates one on this start");
+	}
+	if (!enabled) {
+		blog(LOG_INFO,
+		     "[WebMIX] Enabled the obs-websocket server (port %d) for third-party clients; the "
+		     "web interface itself uses the native control service",
+		     config.value("server_port").toInt(4455));
+	}
 }
 
 /*! The web server lives as long as the application object. */

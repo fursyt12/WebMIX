@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Sign In - WebMIX</title>
+    <link rel="stylesheet" href="assets/obs.css" />
+    <link rel="stylesheet" href="assets/layout.css" />
+    <style>
+      body.obs-app {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100%;
+        overflow: auto;
+        padding: 16px;
+        box-sizing: border-box;
+      }
+      .webmix-login {
+        width: 360px;
+        max-width: 100%;
+      }
+      .webmix-login form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--obs-padding-large);
+      }
+      .webmix-login label {
+        display: flex;
+        flex-direction: column;
+        gap: var(--obs-padding-base);
+      }
+      .webmix-login .obs-input {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .webmix-login-message {
+        margin: 0;
+        line-height: 1.4;
+      }
+      .webmix-login-message.is-error {
+        color: var(--obs-error-bright);
+      }
+      .webmix-login .obs-dialog-buttons {
+        margin-top: var(--obs-padding-base);
+      }
+    </style>
+  </head>
+  <body class="obs-app">
+    <main class="obs-dialog webmix-login" role="dialog" aria-labelledby="login-heading">
+      <div class="obs-dialog-title" id="login-heading" data-key="WebMix.Login.Heading">Sign in to WebMIX</div>
+      <div class="obs-dialog-body">
+        <form id="login-form" hidden>
+          <label>
+            <span class="obs-label" data-key="WebMix.Access.Username">Login</span>
+            <input class="obs-input" id="login-user" name="username" type="text" autocomplete="username"
+              autocapitalize="none" spellcheck="false" required />
+          </label>
+          <label>
+            <span class="obs-label" data-key="WebMix.Access.Password">Password</span>
+            <input class="obs-input" id="login-password" name="password" type="password"
+              autocomplete="current-password" required />
+          </label>
+          <p class="webmix-login-message" id="login-message" role="alert" hidden></p>
+          <div class="obs-dialog-buttons">
+            <button class="obs-btn primary" id="login-submit" type="submit" data-key="WebMix.Login.Submit">Sign In</button>
+          </div>
+        </form>
+      </div>
+    </main>
+    <script type="module">
+      import { mountLogin } from './src/login.js';
+      mountLogin();
+    </script>
+  </body>
+</html>

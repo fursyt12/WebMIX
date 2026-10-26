@@ -22,9 +22,14 @@
 #include <QObject>
 #include <QString>
 
+class QJsonObject;
 class QTcpServer;
 class QTcpSocket;
 class QTimer;
+
+namespace WebMixAuth {
+struct Client;
+}
 
 /* WebMIX: serves the browser frontend from inside OBS.
  *
@@ -41,6 +46,11 @@ class QTimer;
  * That channel replaces obs-websocket for the UI.  The remaining `/api/*`
  * endpoints cover the handful of operations the old protocol had no request
  * for at all, and are kept because they are the natural home for them.
+ *
+ * Browsers on this machine are trusted; any other one signs in first (see
+ * WebMixAuth) and until then gets only the sign-in page, its assets and
+ * /api/auth/*. State-changing requests that another site's page makes the
+ * browser send are refused by their Origin.
  *
  * Deliberately built on QTcpServer rather than QtHttpServer so no extra Qt
  * module is required. */
@@ -69,6 +79,11 @@ private slots:
 private:
 	void HandleRequest(QTcpSocket *socket, const QByteArray &request);
 
+	/* ---- sign-in for other machines (WebMixAuth) --------------------- */
+	void HandleAuth(QTcpSocket *socket, const QByteArray &method, const QString &path, const QByteArray &body,
+			const WebMixAuth::Client &client);
+	QJsonObject AccessState(const WebMixAuth::Client &client) const;
+
 	/* ---- the native control channel ---------------------------------- */
 	void HandleObsRequest(QTcpSocket *socket, const QByteArray &body);
 	void HandleObsBatch(QTcpSocket *socket, const QByteArray &body);
@@ -77,7 +92,10 @@ private:
 	void PingEventStreams();
 
 	void SendFile(QTcpSocket *socket, const QString &path, int status = 200);
-	void SendJson(QTcpSocket *socket, const QByteArray &json, int status = 200);
+	/*! `headers` are extra header lines, each ending in "\r\n". */
+	void SendJson(QTcpSocket *socket, const QByteArray &json, int status = 200,
+		      const QByteArray &headers = QByteArray());
+	void SendRedirect(QTcpSocket *socket, const QByteArray &location);
 	void SendText(QTcpSocket *socket, const QString &text, int status = 200,
 		      const char *type = "text/plain; charset=utf-8");
 	void SendError(QTcpSocket *socket, int status, const QString &reason);
