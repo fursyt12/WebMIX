@@ -2435,3 +2435,272 @@ body.obs-app {
   align-self: center;
   image-rendering: pixelated;
 }
+
+/* ------------------------------------------ Tools > the plugins' windows */
+
+/* A plugin's Qt window drawn from its widgets (ui/plugin-windows.js): boxes,
+   grids and forms as Qt lays them out, with the theme's own controls. */
+.webmix-plugin-window .obs-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-large);
+}
+
+.webmix-pw-box {
+  display: flex;
+  gap: var(--obs-padding-large);
+  min-width: 0;
+}
+
+.webmix-pw-box.is-v {
+  flex-direction: column;
+}
+
+.webmix-pw-box.is-h {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* A field in a row takes the room the row has, as it does in Qt. */
+.webmix-pw-box.is-h > .obs-input,
+.webmix-pw-box.is-h > .obs-select,
+.webmix-pw-box.is-h > .webmix-pw-number-wrap,
+.webmix-pw-box.is-h > .webmix-pw-editable-combo,
+.webmix-pw-box.is-h > .webmix-pw-progress-row {
+  flex: 1 1 8em;
+  min-width: 0;
+}
+
+/* QDialogButtonBox: its buttons at the end of the row. */
+.webmix-pw-box.is-buttons {
+  justify-content: flex-end;
+  padding-top: var(--obs-padding-xlarge);
+}
+
+.webmix-pw-spacer {
+  flex: 0 0 var(--obs-padding-xlarge);
+}
+
+.webmix-pw-spacer.is-grow {
+  flex: 1 1 0;
+}
+
+.webmix-pw-grid,
+.webmix-pw-form {
+  display: grid;
+  gap: var(--obs-padding-large) var(--obs-padding-xlarge);
+  align-items: center;
+  min-width: 0;
+}
+
+.webmix-pw-form {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.webmix-pw-span {
+  grid-column: 1 / -1;
+}
+
+.webmix-pw-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.webmix-pw-cell > .obs-input,
+.webmix-pw-cell > .obs-select,
+.webmix-pw-cell > .webmix-pw-number-wrap,
+.webmix-pw-cell > .webmix-pw-editable-combo,
+.webmix-pw-cell > .webmix-pw-list,
+.webmix-pw-cell > .webmix-pw-box,
+.webmix-pw-cell > .webmix-pw-progress-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.webmix-pw-group {
+  margin: 0;
+  padding: var(--obs-padding-xlarge);
+  min-width: 0;
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+}
+
+.webmix-pw-legend {
+  padding: 0 var(--obs-padding-large);
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.webmix-pw-group.is-disabled > .webmix-pw-legend {
+  color: var(--obs-text-disabled);
+}
+
+.webmix-pw-label {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.webmix-pw-label.is-disabled {
+  color: var(--obs-text-disabled);
+}
+
+.webmix-pw-link {
+  color: var(--obs-primary-light);
+}
+
+.webmix-pw-check {
+  min-width: 0;
+}
+
+.webmix-pw-sep {
+  align-self: stretch;
+  margin: var(--obs-padding-large) 0;
+  border: 0;
+  border-top: var(--obs-border-width) solid var(--obs-border);
+}
+
+.webmix-pw-sep.is-v {
+  margin: 0 var(--obs-padding-large);
+  border-top: 0;
+  border-left: var(--obs-border-width) solid var(--obs-border);
+}
+
+.webmix-pw-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--obs-padding-large);
+  white-space: nowrap;
+}
+
+.webmix-pw-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.webmix-pw-split {
+  display: inline-flex;
+}
+
+.webmix-pw-menu-arrow {
+  padding-left: var(--obs-padding-large);
+  padding-right: var(--obs-padding-large);
+}
+
+.webmix-pw-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--obs-spacing-base);
+  border-bottom: var(--obs-border-width) solid var(--obs-border);
+}
+
+.webmix-pw-tab {
+  padding: var(--obs-padding-large) var(--obs-padding-xlarge);
+  color: var(--obs-tab-fg);
+  font: inherit;
+  background: var(--obs-tab-bg);
+  border: var(--obs-border-width) solid transparent;
+  border-bottom: 0;
+  border-radius: var(--obs-radius) var(--obs-radius) 0 0;
+  cursor: pointer;
+}
+
+.webmix-pw-tab:hover:not(:disabled) {
+  background: var(--obs-tab-bg-hover);
+}
+
+.webmix-pw-tab.is-active {
+  color: var(--obs-tab-fg-active);
+  background: var(--obs-tab-bg-down);
+  border-color: var(--obs-tab-border-selected);
+}
+
+.webmix-pw-tabpage {
+  padding-top: var(--obs-padding-xlarge);
+}
+
+.webmix-pw-number-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--obs-padding-base);
+}
+
+.webmix-pw-number-wrap > .obs-input {
+  flex: 1 1 auto;
+  min-width: 5em;
+}
+
+.webmix-pw-affix:empty {
+  display: none;
+}
+
+.webmix-pw-editable-combo {
+  display: inline-flex;
+}
+
+.webmix-pw-editable-combo > .obs-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.webmix-pw-textarea {
+  width: 100%;
+  min-height: 6em;
+  resize: vertical;
+}
+
+.webmix-pw-list {
+  max-height: 280px;
+  min-width: 0;
+  overflow: auto;
+  border: var(--obs-border-width) solid var(--obs-border);
+}
+
+.webmix-pw-list.is-disabled {
+  opacity: 0.6;
+}
+
+.webmix-pw-row {
+  cursor: default;
+  user-select: none;
+}
+
+.webmix-pw-table td {
+  padding: var(--obs-padding-base) var(--obs-padding-large);
+}
+
+.webmix-pw-row.is-selected td {
+  color: var(--obs-text-on-accent);
+  background: var(--obs-selection-bg);
+}
+
+.webmix-pw-row.is-disabled td {
+  color: var(--obs-text-disabled);
+}
+
+.webmix-pw-progress-row {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+}
+
+.webmix-pw-progress {
+  flex: 1 1 auto;
+}
+
+.webmix-pw-image {
+  max-width: 100%;
+  height: auto;
+}
+
+.webmix-pw-unsupported {
+  font-style: italic;
+}
+
+/* What OBS said while nobody was looking (a window answered at start-up...). */
+.webmix-pw-notice {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

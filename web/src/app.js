@@ -11,7 +11,7 @@ import { ObsDirectClient } from './obs-direct.js';
 import { ObsApi } from './api.js';
 import { h, qs, clear, setText, setClass, setTranslator } from './dom.js';
 import { loadLocale, tr, t, currentLocale } from './i18n.js';
-import { MenuBar } from './ui/menu.js';
+import { MenuBar, plain } from './ui/menu.js';
 import { Dock } from './ui/dock.js';
 import { ScenesPanel } from './ui/scenes.js';
 import { SourcesPanel } from './ui/sources.js';
@@ -31,6 +31,13 @@ import { openFilesDialog } from './ui/files.js';
 import { openRemuxDialog } from './ui/remux.js';
 import { openAccessDialog } from './ui/access.js';
 import { openWebSocketSettingsDialog } from './ui/websocket.js';
+import {
+  PluginWindows,
+  PLUGIN_WINDOWS_EVENT,
+  OPEN_URL_EVENT,
+  TOOL_ACTION_PREFIX,
+  toolsMenuItems,
+} from './ui/plugin-windows.js';
 import { openMultiview } from './ui/multiview.js';
 import { WebGpuPreview } from './webgpu-preview.js';
 import { colorIntToHex, hexToColorInt } from './properties.js';
@@ -253,6 +260,9 @@ function wireClient(connection) {
     store.applyEvent(eventType, eventData);
   });
 
+  client.on(PLUGIN_WINDOWS_EVENT, (eventData) => ui?.pluginWindows.handle(eventData));
+  client.on(OPEN_URL_EVENT, (eventData) => ui?.pluginWindows.openUrl(eventData));
+
   client.on('protocolError', (message) => {
     console.warn('[webmix] protocol error:', message);
   });
@@ -396,6 +406,9 @@ function buildUi() {
 
   const statusMessage = (text, kind = 'info') => statusbar.showMessage(text, kind);
 
+  /* The windows plugins open from the Tools menu, mirrored from OBS. */
+  const pluginWindows = new PluginWindows({ onStatus: statusMessage });
+
   async function openProperties(sourceName) {
     await openPropertiesDialog({ api, store: store2, sourceName, onStatus: statusMessage });
   }
@@ -429,8 +442,8 @@ function buildUi() {
 
   // Menu --------------------------------------------------------------------
   const menuBar = new MenuBar(qs('#menubar'), {
-    onAction: (action) => handleAction(action),
-    isChecked: (id) => {
+    onAction: (action, item) => handleAction(action, item),
+    isChecked: (id, item) => {
       switch (id) {
         case 'lockDocks':
           return layoutState.locked !== false;
@@ -461,14 +474,17 @@ function buildUi() {
         default:
           if (id.startsWith('dock:')) return dockVisibility[id.slice(5)] !== false;
           if (id.startsWith('custom:')) return customDocks.isEnabled(id.slice(7));
+          if (id.startsWith(TOOL_ACTION_PREFIX)) return !!item?.checked;
           return false;
       }
     },
-    isDisabled: (id) => {
+    isDisabled: (id, item) => {
       if (id === 'actionRemoveProfile') return (store2.state.profiles.list ?? []).length <= 1;
       if (id === 'actionRemoveSceneCollection') return (store2.state.sceneCollections.list ?? []).length <= 1;
+      if (id.startsWith(TOOL_ACTION_PREFIX)) return !!item?.disabled;
       return false;
     },
+    resolveItems: (menuId, items) => (menuId === 'tools' ? toolsMenuItems(items, pluginWindows.tools) : items),
     buildDynamic: (menuId) => {
       if (menuId === 'docks') {
         const items = Object.keys(docks).map((id) => ({
@@ -520,7 +536,11 @@ function buildUi() {
 
   /* --------------------------------------------------------- action handler */
 
-  async function handleAction(action) {
+  async function handleAction(action, item = null) {
+    if (action.startsWith(TOOL_ACTION_PREFIX)) {
+      await pluginWindows.trigger(Number(action.slice(TOOL_ACTION_PREFIX.length)), plain(item?.label ?? ''));
+      return;
+    }
     if (action.startsWith('dock:')) {
       const id = action.slice(5);
       setDockVisible(id, dockVisibility[id] === false);
@@ -803,6 +823,13 @@ function buildUi() {
         break;
 
       case 'openPluginManager':
+        /* OBS's own Plugin Manager is mirrored like the plugins' windows. */
+        if (pluginWindows.tools?.pluginManager) {
+          await pluginWindows.trigger(pluginWindows.tools.pluginManager, plain(item?.label ?? ''));
+          break;
+        }
+        statusMessage(`"${action}" is only available in the OBS desktop UI`, 'warning');
+        break;
       case 'openScripts':
       case 'autoConfigure':
       case 'uploadCurrentLog':
@@ -1268,6 +1295,7 @@ function buildUi() {
     stats: statsPanel,
     customDocks,
     menuBar,
+    pluginWindows,
     /** Run a menu action by id (used by the browser smoke test and bookmarks). */
     dispatch: (action) => handleAction(action),
     /** Pick the preview backend (WebGPU when OBS streams frames) and repaint. */
@@ -1275,6 +1303,12 @@ function buildUi() {
       await preview.init();
       preview.start();
       refreshAll();
+      /* The plugins' Tools entries, and any of their windows this page still
+       * has open after a reconnect. Only OBS itself can mirror them. */
+      if (store2.state.connection.native) {
+        pluginWindows.loadTools().catch(() => {});
+        pluginWindows.refresh();
+      }
       /* Which backend the browser ended up with decides how smooth the preview
        * is, and it is not something the user can guess - so say it once. */
       statusbar.showMessage(`Preview: ${preview.backendLabel}`, 'info', 8000);

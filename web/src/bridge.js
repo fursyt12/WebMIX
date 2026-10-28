@@ -178,4 +178,30 @@ export async function kickWebSocketSession(address) {
   return postJson('api/websocket/kick', { address });
 }
 
+/* ---------------------------------------------------------- plugin windows */
+
+/**
+ * The Tools menu entries plugins added, in menu order: `{items: [{id, text,
+ * enabled, checkable, checked, replacement?, items?}], pluginManager}`, or null
+ * without the bridge.
+ */
+export async function fetchPluginTools() {
+  return get('api/plugins/tools');
+}
+
+/** The mirrored windows a page has open: `{ok, session, open, windows}`. */
+export async function fetchPluginWindows(session) {
+  return get(`api/plugins/windows?session=${encodeURIComponent(session)}`);
+}
+
+/** Trigger a Tools entry; resolves once its window is shown (`opened: false` if none was). */
+export async function triggerPluginTool(id, session) {
+  return postJson('api/plugins/trigger', { id, session });
+}
+
+/** Do to a mirrored window's widget what a person would: `{session, window, widget, action, value}`. */
+export async function actOnPluginWindow(request) {
+  return postJson('api/plugins/act', request);
+}
+
 export { notAvailable as bridgeUnavailable };

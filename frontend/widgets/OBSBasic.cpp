@@ -1110,7 +1110,12 @@ void OBSBasic::OBSInit()
 		connect(action, &QAction::triggered, this, &OBSBasic::ManageExtraBrowserDocks);
 		ui->menuDocks->insertSeparator(ui->scenesDock->toggleViewAction());
 
-		LoadExtraBrowserDocks();
+		/* WebMIX: the browser has its own custom docks. These would only be
+		 * Chromium windows inside a window nobody sees, and a page in one can
+		 * still pull the keyboard to itself. */
+		if (!web_mode) {
+			LoadExtraBrowserDocks();
+		}
 	}
 #endif
 
@@ -1258,8 +1263,9 @@ void OBSBasic::OnFirstLoad()
 	OnEvent(OBS_FRONTEND_EVENT_FINISHED_LOADING);
 
 #ifdef WHATSNEW_ENABLED
-	/* Attempt to load init screen if available */
-	if (cef) {
+	/* Attempt to load init screen if available. WebMIX: not in web mode, where
+	 * it would be a Chromium window on the desktop. */
+	if (cef && !web_mode) {
 		WhatsNewInfoThread *wnit = new WhatsNewInfoThread();
 		connect(wnit, &WhatsNewInfoThread::Result, this, &OBSBasic::ReceivedIntroJson, Qt::QueuedConnection);
 

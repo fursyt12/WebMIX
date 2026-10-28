@@ -298,6 +298,9 @@ export class MenuBar {
 
   #resolveItems(menu) {
     let items = menu.items;
+    /* Entries that come from elsewhere and go in the middle: Tools gets the
+     * plugins' entries below its separator. */
+    if (this.handlers.resolveItems) items = this.handlers.resolveItems(menu.id, items) ?? items;
     if (menu.dynamic && this.handlers.buildDynamic) {
       const dynamic = this.handlers.buildDynamic(menu.id) ?? [];
       if (dynamic.length) items = [...items, ...dynamic];

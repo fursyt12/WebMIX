@@ -40,6 +40,8 @@ target_sources(
     webmix/WebMixControl_Inputs.cpp
     webmix/WebMixControl_Outputs.cpp
     webmix/WebMixOperations.cpp
+    webmix/WebMixPluginUi.cpp
+    webmix/WebMixPluginUi.hpp
     webmix/WebMixPreview.cpp
     webmix/WebMixPreview.hpp
     webmix/WebMixRemux.cpp

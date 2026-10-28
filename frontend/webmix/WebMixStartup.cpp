@@ -125,6 +125,9 @@ bool AskEndpoint(QWidget *parent, QString &host, quint16 &port, bool &remember)
 	QDialog dialog(parent);
 	dialog.setWindowTitle(QObject::tr("WebMIX — where should the interface listen?"));
 	dialog.setModal(true);
+	/* Asked before there is a web interface to ask in, so this one stays on
+	 * screen (see WebMixPluginUi::StartWebMode()). */
+	dialog.setProperty("webmixOnScreen", true);
 
 	auto *layout = new QVBoxLayout(&dialog);
 

@@ -95,6 +95,7 @@ test('all UI modules import cleanly without a DOM', async () => {
     '../src/ui/multiview.js',
     '../src/ui/access.js',
     '../src/ui/websocket.js',
+    '../src/ui/plugin-windows.js',
     '../src/access.js',
     '../src/login.js',
   ];

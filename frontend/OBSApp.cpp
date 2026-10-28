@@ -17,6 +17,7 @@
 
 #include "OBSApp.hpp"
 
+#include "webmix/WebMixPluginUi.hpp"
 #include "webmix/WebMixServer.hpp"
 #include "webmix/WebMixStartup.hpp"
 
@@ -1506,6 +1507,13 @@ bool OBSApp::OBSInit()
 
 	thumbnailManager = new ThumbnailManager(this);
 
+	/* WebMIX: from here on nothing OBS or a plugin shows reaches the screen
+	 * or takes the keyboard; it goes to the browser. Before the main window
+	 * exists, and before plugins load, which is when they warn about things. */
+	if (web_mode) {
+		WebMixPluginUi::StartWebMode();
+	}
+
 	mainWindow = new OBSBasic();
 
 	mainWindow->setAttribute(Qt::WA_DeleteOnClose, true);
@@ -1585,6 +1593,9 @@ bool OBSApp::OBSInit()
 				     qUtf8Printable(url.toString()));
 			}
 		}
+		/* Windows wait for the browser from now on, and links plugins open go
+		 * there too - after the browser above was opened the normal way. */
+		WebMixPluginUi::Serve();
 	}
 
 	return true;

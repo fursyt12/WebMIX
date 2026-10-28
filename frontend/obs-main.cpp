@@ -831,7 +831,11 @@ static void main_crash_handler(const char *format, va_list args, void * /* param
 
 	string finalMessage = string(message_buffer.get(), message_buffer.get() + size);
 
-	int ret = MessageBoxA(NULL, finalMessage.c_str(), "OBS has crashed!", MB_YESNO | MB_ICONERROR | MB_TASKMODAL);
+	/* WebMIX: no box on the desktop in web mode - it would come up in front of
+	 * whatever the person is doing. The crash log is saved as always. */
+	int ret = web_mode ? IDNO
+			   : MessageBoxA(NULL, finalMessage.c_str(), "OBS has crashed!",
+					 MB_YESNO | MB_ICONERROR | MB_TASKMODAL);
 
 	if (ret == IDYES) {
 		size_t len = strlen(text);

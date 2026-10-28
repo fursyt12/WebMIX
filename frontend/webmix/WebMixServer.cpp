@@ -20,6 +20,7 @@
 #include "WebMixAuth.hpp"
 #include "WebMixBridge.hpp"
 #include "WebMixControl.hpp"
+#include "WebMixPluginUi.hpp"
 #include "WebMixPreview.hpp"
 #include "WebMixRemux.hpp"
 #include "WebMixStartup.hpp"
@@ -38,6 +39,7 @@
 #include <QJsonValue>
 #include <QImage>
 #include <QMetaObject>
+#include <QPointer>
 #include <QSharedPointer>
 #include <QUrlQuery>
 #include <QTcpServer>
@@ -331,6 +333,8 @@ void WebMixServer::Stop()
 	WebMixRemux::Shutdown();
 	/* Neither may the preview captures: they hold GPU resources. */
 	WebMixPreview::Shutdown();
+	/* Plugin windows the browser has open go back to being Qt's. */
+	WebMixPluginUi::Stop();
 
 	if (keepAlive) {
 		keepAlive->stop();
@@ -377,7 +381,19 @@ void WebMixServer::OnNewConnection()
 		}
 
 		socket->setParent(this);
-		connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+		/* Not while a request on it is still being answered: a window that
+		 * request opened (OBS's "could not start the stream", answered in the
+		 * browser) runs an event loop, and a browser that gave up in the
+		 * meantime would have the socket deleted in there - and the answer
+		 * written to freed memory once the window closes. Writing to a socket
+		 * that is merely disconnected does nothing. */
+		connect(socket, &QTcpSocket::disconnected, socket, [socket]() {
+			if (socket->property("webmixAnswering").toInt() > 0) {
+				socket->setProperty("webmixGone", true);
+				return;
+			}
+			socket->deleteLater();
+		});
 
 		/* Request headers are accumulated in a shared buffer that lives as
 		 * long as the connection: the socket is the connection context, so the
@@ -409,7 +425,13 @@ void WebMixServer::OnNewConnection()
 
 			const QByteArray request = buffer->left(headerEnd + 4 + contentLength);
 			buffer->clear();
+			socket->setProperty("webmixAnswering", socket->property("webmixAnswering").toInt() + 1);
 			HandleRequest(socket, request);
+			const int answering = socket->property("webmixAnswering").toInt() - 1;
+			socket->setProperty("webmixAnswering", answering);
+			if (answering == 0 && socket->property("webmixGone").toBool()) {
+				socket->deleteLater();
+			}
 		});
 	}
 }
@@ -774,6 +796,55 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		state["address"] =
 			QStringLiteral("%1:%2").arg(server->serverAddress().toString()).arg(server->serverPort());
 		SendJson(socket, QJsonDocument(state).toJson(QJsonDocument::Compact), ok ? 200 : 400);
+		return;
+	}
+
+	/* --- Tools menu entries plugins add, and their windows (WebMixPluginUi) - */
+	if (path.startsWith(QLatin1String("/api/plugins/"))) {
+		if (method == "GET" || method == "HEAD") {
+			if (path == "/api/plugins/tools") {
+				SendJson(socket, QJsonDocument(WebMixPluginUi::Tools()).toJson(QJsonDocument::Compact));
+				return;
+			}
+			if (path == "/api/plugins/windows") {
+				const QJsonObject state = WebMixPluginUi::Windows(QueryValue(query, "session"));
+				SendJson(socket, QJsonDocument(state).toJson(QJsonDocument::Compact));
+				return;
+			}
+			SendError(socket, 404, "Unknown plugins endpoint");
+			return;
+		}
+		if (method != "POST") {
+			SendError(socket, 405, "Method not allowed");
+			return;
+		}
+
+		const QJsonObject requestData =
+			QJsonDocument::fromJson(request.mid(request.indexOf("\r\n\r\n") + 4)).object();
+		const QString session = requestData.value("session").toString();
+		if (session.isEmpty()) {
+			SendJson(socket, R"({"ok":false,"error":"No session given"})", 400);
+			return;
+		}
+		/* Answered later: the plugin's window has to be shown first, or the
+		 * click it got to take effect. */
+		QPointer<WebMixServer> self(this);
+		QPointer<QTcpSocket> client(socket);
+		auto reply = [self, client](const QJsonObject &result) {
+			if (self && client) {
+				self->SendJson(client, QJsonDocument(result).toJson(QJsonDocument::Compact),
+					       result.value("ok").toBool() ? 200 : 400);
+			}
+		};
+		if (path == "/api/plugins/trigger") {
+			WebMixPluginUi::Trigger(requestData.value("id").toInt(), session, reply);
+			return;
+		}
+		if (path == "/api/plugins/act") {
+			WebMixPluginUi::Act(requestData, session, reply);
+			return;
+		}
+		SendError(socket, 404, "Unknown plugins endpoint");
 		return;
 	}
 
