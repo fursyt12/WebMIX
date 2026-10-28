@@ -9,28 +9,30 @@ stops an unattended start.
 
 ## What is new
 
-* **Sign-in for other computers.** Browsers on the computer running OBS open
-  the interface as before. Every other browser now has to sign in with the
-  login set in **Tools > Web Interface Access**; until one is set, the
-  interface is closed to other computers. The password is stored salted and
-  hashed, sessions end when the login changes or OBS restarts, repeated wrong
-  passwords lock the address out for a while, and requests that another site
-  makes your browser send are refused.
-* **Tools > WebSocket Server Settings**, in the browser: turn the obs-websocket
-  server on or off, change its port and password (or generate one), see and
-  kick connected clients, and show the Connect Info with its QR code - the
-  plugin's own dialog and wording, applied by the plugin itself.
-* **Settings > General: start with the computer.** *Start WebMIX when I sign in
-  to this computer* adds an autostart entry (Linux and Windows) that serves on
-  the current address and port without asking, and *Don't open the browser
-  when OBS starts* is `--no-browser` for every launch.
-* **obs-websocket gets a password again.** Web mode used to save an empty
-  password while enabling the server, so clients that needed one could not
-  authenticate; the plugin now generates one, as on a normal first start
-  (existing installs get one on the next start).
+* **Plugins in the browser.** The Tools menu now has the entries plugins add -
+  DistroAV's NDI® output settings, the Output Timer, the Automatic Scene
+  Switcher - and the Plugin Manager works from the browser too. Their windows
+  open in the page: OBS opens the plugin's own window, keeps it off screen and
+  draws the same form in the browser, so the plugin fills it in, checks it and
+  applies it exactly as on the desktop. Message boxes and file dialogs those
+  windows open follow them. (A plugin's sources and filters already showed up
+  by themselves.)
+* **Nothing on the desktop in web mode.** No window OBS or a plugin shows
+  reaches the screen or takes the keyboard any more - not a plugin's warning,
+  not OBS's own "could not start the stream". They come up in every open page
+  and wait to be answered there; one that comes up while OBS is still starting
+  is answered no, so it cannot hold the start up, and the browser is told what
+  it said once it connects. Windows OBS keeps hidden can no longer take focus
+  either (OBS used to activate its hidden main window when it loaded saved
+  projectors), links and folders plugins open go to the browser, the crash
+  handler saves its log without a message box, and OBS's own browser docks and
+  "What's New" page are not loaded. Projectors still open on their monitor,
+  without taking focus.
+* **Fixed:** OBS crashed when a browser gave up on a request while OBS was
+  showing a message box about it.
 
-The previous release (0.5.0) put layers front first and made editing in the
-preview follow OBS's rules (snapping, proportional scaling, crop, rotation).
+The previous release (0.6.0) added sign-in for other computers, obs-websocket's
+settings in the browser and starting with the computer.
 
 ## Downloads
 
