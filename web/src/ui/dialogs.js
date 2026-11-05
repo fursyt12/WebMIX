@@ -850,6 +850,7 @@ export async function openAdvancedAudioDialog({ api, store, onStatus, onChanged 
       );
       monitor.value = audio.monitorType ?? 'OBS_MONITORING_TYPE_NONE';
       monitor.addEventListener('change', () => {
+        if (monitor.value !== 'OBS_MONITORING_TYPE_NONE') onMonitorGesture?.();
         api.setInputAudioMonitorType(input.inputName, monitor.value).then(onChanged).catch((err) => onStatus?.(err.message, 'error'));
       });
       row.appendChild(h('td', {}, [monitor]));
@@ -965,6 +966,10 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
     };
     const autostart = checkRow(t('WebMix.Startup.Autostart'), startup.autostart, !startup.autostartSupported);
     const noBrowser = checkRow(t('WebMix.Startup.NoBrowser'), !startup.openBrowser);
+    const startStreaming = checkRow(
+      t('WebMix.Startup.StartStreaming', { fallback: 'Start streaming when OBS starts' }),
+      !!startup.startStreaming
+    );
 
     body.append(
       h('div.obs-group-title', { text: 'WebMIX', raw: true }),
@@ -977,6 +982,7 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
           raw: true,
         }),
         noBrowser.row,
+        startStreaming.row,
       ]),
       h('div.obs-dialog-actions', {}, [
         h('button.obs-btn.primary', {
@@ -984,7 +990,10 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
           text: 'Apply',
           on: {
             click: async () => {
-              const changes = { openBrowser: !noBrowser.input.checked };
+              const changes = {
+                openBrowser: !noBrowser.input.checked,
+                startStreaming: startStreaming.input.checked,
+              };
               if (startup.autostartSupported) changes.autostart = autostart.input.checked;
               const result = await saveStartupSettings(changes);
               if (result?.ok) {

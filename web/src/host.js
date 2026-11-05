@@ -45,6 +45,7 @@ export async function detectHost(base = '') {
       // The stream endpoint can serve the program output itself
       // (`view=program`), rather than a scene rendered again by name.
       previewProgram: data.previewProgram === true,
+      audioStream: data.audioStream === true,
       propertySchema: data.propertySchema === true,
       remux: data.remux === true,
       version: data.version,

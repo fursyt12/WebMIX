@@ -77,6 +77,7 @@ the command line:
 WebPort=4456
 WebHost=127.0.0.1
 WebOpenBrowser=true
+WebStartStreaming=false
 ```
 
 `--no-web` (alias `--native`) is the only way back to the classic window; the
@@ -103,7 +104,8 @@ an upgraded install on the native UI.
 | `POST /api/plugins/trigger` | `{id, session}`: triggers that entry. The window it opens is shown for real but kept off screen and never activated, and comes back described widget by widget (`{ok, session, open, windows}`; `opened: false` if nothing opened). |
 | `POST /api/plugins/act` | `{session, window, widget, action, value}`: what a person would do to one of those widgets (`set`, `click`, `trigger`, `select`, `activate`, `check`, `tab`, `link`, `close`). Changes made by the plugin reach the page as the `WebMixPluginWindowsChanged` event. |
 | `GET /api/plugins/windows` | `?session=`: the mirrored windows that page has open. |
-| `GET\|POST /api/startup` | **Settings > General**: start at sign-in (`autostart`) and open the browser on start (`openBrowser`). |
+| `GET\|POST /api/startup` | **Settings > General**: start at sign-in (`autostart`), open the browser on start (`openBrowser`) and start streaming on launch (`startStreaming`). |
+| `GET /api/audio` | Live monitored audio (`WMA1` framed stereo `s16le` PCM) for browser-only monitoring; host OS monitoring playback is suppressed in web mode. |
 | `POST /api/shutdown` | Shuts OBS down. This is what **File > Exit** calls, so OBS can be stopped from the browser. Refused with 409 while a remux is running unless `force=1` is passed. |
 | `GET /api/preview.mjpg` | Live preview: JPEG frames as `multipart/x-mixed-replace`. `view=program` is the program output itself (transitions included); `source=<name>` renders one scene or source. Also `width`, `height`, `fps` (capped by OBS's own rate), `quality`. A client that cannot keep up gets fewer frames, never a backlog. |
 | `GET /api/preview.jpg` | A single preview frame. |
@@ -189,6 +191,8 @@ process:
   removes the entry. Not available on macOS.
 * *Don't open the browser when OBS starts (--no-browser)* sets
   `[General] WebOpenBrowser=false`, for every launch.
+* *Start streaming when OBS starts* sets `[General] WebStartStreaming=true`, so
+  OBS starts streaming automatically once the web server is up.
 
 By hand, the equivalent command line (Windows shortcut / Linux `.desktop`
 `Exec=`) is:

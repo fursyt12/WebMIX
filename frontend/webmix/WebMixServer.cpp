@@ -17,6 +17,7 @@
 
 #include "WebMixServer.hpp"
 
+#include "WebMixAudio.hpp"
 #include "WebMixAuth.hpp"
 #include "WebMixBridge.hpp"
 #include "WebMixControl.hpp"
@@ -314,6 +315,7 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 	exitHooked = true;
 
 	WebMixControl::Start();
+	WebMixAudio::Start();
 	keepAlive = new QTimer(this);
 	keepAlive->setInterval(15000);
 	connect(keepAlive, &QTimer::timeout, this, &WebMixServer::PingEventStreams);
@@ -333,6 +335,8 @@ void WebMixServer::Stop()
 	WebMixRemux::Shutdown();
 	/* Neither may the preview captures: they hold GPU resources. */
 	WebMixPreview::Shutdown();
+	/* Nor the audio monitor mixer, which holds source capture callbacks. */
+	WebMixAudio::Shutdown();
 	/* Plugin windows the browser has open go back to being Qt's. */
 	WebMixPluginUi::Stop();
 
@@ -596,6 +600,32 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		return;
 	}
 
+	/* --- live monitored audio (browser-only monitoring) --------------------- */
+	if (path == "/api/audio") {
+		if (method != "GET" && method != "HEAD") {
+			SendError(socket, 405, "Method not allowed");
+			return;
+		}
+		if (method == "HEAD") {
+			QByteArray header;
+			header += "HTTP/1.1 200 OK\r\n";
+			header += "Content-Type: application/octet-stream\r\n";
+			header += "Cache-Control: no-store, no-cache\r\n";
+			header += "Connection: close\r\n\r\n";
+			socket->write(header);
+			socket->disconnectFromHost();
+			return;
+		}
+		if (WebMixAudio::ActiveStreams() >= WebMixAudio::Stream::kMaxStreams) {
+			SendError(socket, 503, "Too many audio streams");
+			return;
+		}
+		disconnect(socket, &QTcpSocket::readyRead, nullptr, nullptr);
+		auto *stream = new WebMixAudio::Stream(socket, this);
+		stream->Start();
+		return;
+	}
+
 	if (path == "/api/locale") {
 		SendJson(socket, QJsonDocument(WebMixBridge::LocaleStrings()).toJson(QJsonDocument::Compact));
 		return;
@@ -770,9 +800,15 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 								 server->serverAddress().toString(),
 								 server->serverPort(), error);
 			}
-			if (ok && requestData.contains("openBrowser")) {
-				config_set_bool(appConfig, "General", "WebOpenBrowser",
-						requestData.value("openBrowser").toBool());
+			if (ok && (requestData.contains("openBrowser") || requestData.contains("startStreaming"))) {
+				if (requestData.contains("openBrowser")) {
+					config_set_bool(appConfig, "General", "WebOpenBrowser",
+							requestData.value("openBrowser").toBool());
+				}
+				if (requestData.contains("startStreaming")) {
+					config_set_bool(appConfig, "General", "WebStartStreaming",
+							requestData.value("startStreaming").toBool());
+				}
 				ok = config_save_safe(appConfig, "tmp", nullptr) == CONFIG_SUCCESS;
 				if (!ok) {
 					error = QStringLiteral("Could not save global.ini.");
@@ -793,6 +829,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		state["autostart"] = WebMixStartup::AutostartEnabled();
 		/* --no-browser for every launch; the command-line flag still wins. */
 		state["openBrowser"] = config_get_bool(appConfig, "General", "WebOpenBrowser");
+		state["startStreaming"] = config_get_bool(appConfig, "General", "WebStartStreaming");
 		state["address"] =
 			QStringLiteral("%1:%2").arg(server->serverAddress().toString()).arg(server->serverPort());
 		SendJson(socket, QJsonDocument(state).toJson(QJsonDocument::Compact), ok ? 200 : 400);
@@ -1005,6 +1042,8 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		status["shutdownEndpoint"] = true;
 		status["propertySchema"] = true;
 		status["previewStream"] = true;
+		status["audioStream"] = true;
+		status["audio"] = WebMixAudio::Stats();
 		status["multiview"] = true;
 		status["operations"] = true;
 		status["fileAccess"] = true;

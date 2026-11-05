@@ -142,14 +142,14 @@ export async function clearAllRemux() {
 
 /**
  * Settings > General, how OBS starts: `{autostart, autostartSupported,
- * openBrowser, address}` (address is where a sign-in start will serve), or
- * null without the bridge.
+ * openBrowser, startStreaming, address}` (address is where a sign-in start will
+ * serve), or null without the bridge.
  */
 export async function fetchStartupSettings() {
   return get('api/startup');
 }
 
-/** Change any of `autostart` and `openBrowser`; resolves the new state. */
+/** Change any of `autostart`, `openBrowser` and `startStreaming`; resolves the new state. */
 export async function saveStartupSettings(settings) {
   return postJson('api/startup', settings);
 }

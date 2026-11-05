@@ -914,6 +914,9 @@ EXPORT void obs_enum_audio_monitoring_devices(obs_enum_audio_device_cb cb, void 
 EXPORT bool obs_set_audio_monitoring_device(const char *name, const char *id);
 EXPORT void obs_get_audio_monitoring_device(const char **name, const char **id);
 
+EXPORT void obs_set_audio_monitoring_suppressed(bool suppressed);
+EXPORT bool obs_audio_monitoring_suppressed(void);
+
 EXPORT void obs_add_tick_callback(void (*tick)(void *param, float seconds), void *param);
 EXPORT void obs_remove_tick_callback(void (*tick)(void *param, float seconds), void *param);
 

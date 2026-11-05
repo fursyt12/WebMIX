@@ -75,6 +75,7 @@ test('all UI modules import cleanly without a DOM', async () => {
     '../src/fader.js',
     '../src/hotkeys.js',
     '../src/host.js',
+    '../src/audio-monitor.js',
     '../src/ui/icons.js',
     '../src/ui/menu.js',
     '../src/ui/dialog.js',

@@ -35,6 +35,7 @@ test('detectHost recognises the embedded OBS server', async (t) => {
           obsControl: true,
           shutdownEndpoint: true,
           previewStream: true,
+          audioStream: true,
           propertySchema: true,
           remux: true,
           version: '33.0.0',
@@ -60,6 +61,7 @@ test('detectHost recognises the embedded OBS server', async (t) => {
   assert.equal(info.version, '33.0.0');
   assert.equal(info.webRoot, '/opt/obs/web');
   assert.equal(info.previewStream, true);
+  assert.equal(info.audioStream, true);
   assert.equal(info.propertySchema, true);
   assert.equal(info.remux, true);
 

@@ -859,7 +859,7 @@ void SetInputAudioMonitorType(const QJsonObject &data, Response &response)
 		return;
 	}
 
-	if (!obs_audio_monitoring_available()) {
+	if (!obs_audio_monitoring_suppressed() && !obs_audio_monitoring_available()) {
 		Fail(response, Status::InvalidResourceState,
 		     QStringLiteral("Audio monitoring is not available on this platform."));
 		return;

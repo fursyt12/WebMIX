@@ -509,6 +509,9 @@ static inline void execute_audio_tasks(void)
  */
 static inline bool should_silence_monitored_source(obs_source_t *source, struct obs_core_audio *audio)
 {
+	if (obs_audio_monitoring_suppressed())
+		return false;
+
 	obs_source_t *dup_src = audio->monitoring_duplicating_source;
 
 	if (!dup_src || !obs_source_active(dup_src))

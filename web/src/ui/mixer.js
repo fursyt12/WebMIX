@@ -54,12 +54,13 @@ const PEAK_HOLD_MS = 1000;
 const dbFraction = (db) => Math.min(1, Math.max(0, (db - MIN_METER_DB) / (0 - MIN_METER_DB)));
 
 export class MixerPanel {
-  constructor({ store, api, onStatus, onSelectSource, onAdvancedAudio }) {
+  constructor({ store, api, onStatus, onSelectSource, onAdvancedAudio, onMonitorGesture }) {
     this.store = store;
     this.api = api;
     this.onStatus = onStatus;
     this.onSelectSource = onSelectSource;
     this.onAdvancedAudio = onAdvancedAudio;
+    this.onMonitorGesture = onMonitorGesture;
 
     /* Until OBS answers, the desktop defaults. */
     this.options = { vertical: true, showInactive: false, keepInactiveLast: false, showHidden: false, keepHiddenLast: false };
@@ -554,6 +555,7 @@ export class MixerPanel {
   async toggleMonitor(name) {
     const audio = this.store.state.audio[name] ?? {};
     const on = (audio.monitorType ?? 'OBS_MONITORING_TYPE_NONE') !== 'OBS_MONITORING_TYPE_NONE';
+    if (!on) this.onMonitorGesture?.();
     try {
       await this.api.setInputAudioMonitorType(
         name,

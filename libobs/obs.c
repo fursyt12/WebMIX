@@ -3018,6 +3018,48 @@ bool obs_set_audio_monitoring_device(const char *name, const char *id)
 	return true;
 }
 
+static volatile bool audio_monitoring_suppressed = false;
+
+static bool sync_source_audio_monitor(void *param, obs_source_t *src)
+{
+	bool suppressed = *(const bool *)param;
+	if (suppressed) {
+		if (src->monitor) {
+			audio_monitor_destroy(src->monitor);
+			src->monitor = NULL;
+		}
+	} else if (src->monitoring_enabled && !src->monitor) {
+		src->monitor = audio_monitor_create(src);
+	}
+	return true;
+}
+
+void obs_set_audio_monitoring_suppressed(bool suppressed)
+{
+	if (os_atomic_load_bool(&audio_monitoring_suppressed) == suppressed)
+		return;
+
+	os_atomic_set_bool(&audio_monitoring_suppressed, suppressed);
+
+	if (obs) {
+		obs_enum_all_sources(sync_source_audio_monitor, &suppressed);
+		if (suppressed && obs->audio.monitoring_duplicating_source) {
+			struct calldata cd;
+			uint8_t stack[128];
+			calldata_init_fixed(&cd, stack, sizeof(stack));
+			calldata_set_ptr(&cd, "source", NULL);
+			signal_handler_signal(obs->signals, "deduplication_changed", &cd);
+		} else if (!suppressed) {
+			obs_enum_sources(check_all_aoc_sources, NULL);
+		}
+	}
+}
+
+bool obs_audio_monitoring_suppressed(void)
+{
+	return os_atomic_load_bool(&audio_monitoring_suppressed);
+}
+
 void obs_get_audio_monitoring_device(const char **name, const char **id)
 {
 	if (name)

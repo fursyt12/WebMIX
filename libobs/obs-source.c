@@ -421,7 +421,7 @@ void obs_source_audio_output_capture_device_changed(obs_source_t *src, const cha
 {
 	struct obs_core_audio *audio = &obs->audio;
 
-	if (!audio->monitoring_device_name)
+	if (!audio->monitoring_device_name || obs_audio_monitoring_suppressed())
 		return;
 
 	if (!(src->info.output_flags & OBS_SOURCE_DO_NOT_SELF_MONITOR))
@@ -5627,8 +5627,9 @@ void obs_source_set_monitoring_enabled(obs_source_t *source, bool enabled)
 
 	if (was_on != enabled) {
 		if (!was_on) {
-			source->monitor = audio_monitor_create(source);
-		} else {
+			if (!obs_audio_monitoring_suppressed())
+				source->monitor = audio_monitor_create(source);
+		} else if (source->monitor) {
 			audio_monitor_destroy(source->monitor);
 			source->monitor = NULL;
 		}

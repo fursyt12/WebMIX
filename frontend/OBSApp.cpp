@@ -80,6 +80,7 @@ string lastCrashLogFile;
 
 extern bool portable_mode;
 extern bool safe_mode;
+extern bool opt_start_streaming;
 extern bool multi;
 extern bool disable_3p_plugins;
 extern bool opt_disable_updater;
@@ -456,6 +457,7 @@ bool OBSApp::InitGlobalConfigDefaults()
 	 * process with no window at all; --no-browser (or WebOpenBrowser=false)
 	 * turns this off for autostart entries and scripts. */
 	config_set_default_bool(appConfig, "General", "WebOpenBrowser", true);
+	config_set_default_bool(appConfig, "General", "WebStartStreaming", false);
 	config_set_default_int(appConfig, "General", "WebPort", 4456);
 	config_set_default_string(appConfig, "General", "WebHost", "127.0.0.1");
 
@@ -1507,10 +1509,16 @@ bool OBSApp::OBSInit()
 
 	thumbnailManager = new ThumbnailManager(this);
 
+	/* OBSBasic::OBSInit() clears opt_start_streaming when queuing --startstreaming. */
+	const bool startStreamingCli = opt_start_streaming;
+
 	/* WebMIX: from here on nothing OBS or a plugin shows reaches the screen
 	 * or takes the keyboard; it goes to the browser. Before the main window
-	 * exists, and before plugins load, which is when they warn about things. */
+	 * exists, and before plugins load, which is when they warn about things.
+	 * Local OS audio monitoring is suppressed before OBSBasic::OBSInit() loads
+	 * the scene collection so monitored sources go exclusively to the browser. */
 	if (web_mode) {
+		obs_set_audio_monitoring_suppressed(true);
 		WebMixPluginUi::StartWebMode();
 	}
 
@@ -1593,9 +1601,22 @@ bool OBSApp::OBSInit()
 				     qUtf8Printable(url.toString()));
 			}
 		}
-		/* Windows wait for the browser from now on, and links plugins open go
-		 * there too - after the browser above was opened the normal way. */
-		WebMixPluginUi::Serve();
+		if (webMixServer->IsRunning()) {
+			/* Windows wait for the browser from now on, and links plugins open go
+			 * there too - after the browser above was opened the normal way. */
+			WebMixPluginUi::Serve();
+
+			if (!safe_mode && !startStreamingCli &&
+			    config_get_bool(GetAppConfig(), "General", "WebStartStreaming")) {
+				blog(LOG_INFO, "[WebMIX] Starting stream on launch (WebStartStreaming)");
+				QMetaObject::invokeMethod(OBSBasic::Get(), &OBSBasic::StartStreaming,
+							  Qt::QueuedConnection);
+			}
+		}
+	} else if (!web_mode && !safe_mode && !startStreamingCli &&
+		   config_get_bool(GetAppConfig(), "General", "WebStartStreaming")) {
+		blog(LOG_INFO, "[WebMIX] Starting stream on launch (WebStartStreaming)");
+		QMetaObject::invokeMethod(OBSBasic::Get(), &OBSBasic::StartStreaming, Qt::QueuedConnection);
 	}
 
 	return true;

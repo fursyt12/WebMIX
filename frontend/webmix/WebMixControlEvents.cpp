@@ -442,10 +442,14 @@ HANDLE(OnInputAudioMonitorType)
 	if (!IsInput(source)) {
 		return;
 	}
+	/* libobs fires "audio_monitoring" before updating source->monitoring_enabled,
+	 * so read the new type from the signal's calldata first. */
+	const auto type = data ? static_cast<obs_monitoring_type>(calldata_int(data, "type"))
+			       : MonitoringTypeOf(source);
 	QJsonObject eventData;
 	eventData["inputName"] = NameOf(source);
 	eventData["inputUuid"] = UuidOf(source);
-	eventData["monitorType"] = MonitoringTypeName(MonitoringTypeOf(source));
+	eventData["monitorType"] = MonitoringTypeName(type);
 	Emit(QStringLiteral("InputAudioMonitorTypeChanged"), eventData, Intent::Inputs);
 }
 

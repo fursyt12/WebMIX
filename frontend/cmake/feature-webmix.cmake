@@ -26,6 +26,8 @@ target_sources(
   obs-studio
   PRIVATE
     webmix/OBSBasic_WebMix.cpp
+    webmix/WebMixAudio.cpp
+    webmix/WebMixAudio.hpp
     webmix/WebMixAuth.cpp
     webmix/WebMixAuth.hpp
     webmix/WebMixBridge.cpp

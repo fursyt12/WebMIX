@@ -25,6 +25,7 @@ import { StatsPanel } from './ui/stats.js';
 import { CustomDocksPanel } from './ui/custom-docks.js';
 import { loadBindings, matchBinding, isTypingTarget } from './hotkeys.js';
 import { detectHost, requestShutdown } from './host.js';
+import { AudioMonitor } from './audio-monitor.js';
 import { fetchRemuxState } from './bridge.js';
 import { installSignInGuard } from './access.js';
 import { openFilesDialog } from './ui/files.js';
@@ -258,6 +259,11 @@ function wireClient(connection) {
 
   client.on('event', ({ eventType, eventData }) => {
     store.applyEvent(eventType, eventData);
+    if (eventType === 'CurrentSceneCollectionChanged') {
+      api.refreshAll().catch(() => {});
+    } else if (eventType === 'InputCreated') {
+      api.refreshAudio().catch(() => {});
+    }
   });
 
   client.on(PLUGIN_WINDOWS_EVENT, (eventData) => ui?.pluginWindows.handle(eventData));
@@ -274,6 +280,9 @@ function buildUi() {
   const store2 = store;
 
   const statusbar = new StatusBar({ store: store2, root: qs('#statusbar') });
+  const audioMonitor = new AudioMonitor({
+    onStatus: (text, kind, ms) => statusbar.showMessage(text, kind, ms),
+  });
   /* Assigned just below; the preview's selection callback only runs later. */
   let sourceToolbar = null;
 
@@ -320,13 +329,19 @@ function buildUi() {
     store: store2,
     api,
     onStatus: (text, kind) => statusbar.showMessage(text, kind),
+    onMonitorGesture: () => audioMonitor.unlock(),
     onSelectSource: (name) => {
       sources.select(name);
       preview.select(name);
       sourceToolbar.setSelection(name);
     },
     onAdvancedAudio: () =>
-      openAdvancedAudioDialog({ api, store: store2, onStatus: (t, k) => statusbar.showMessage(t, k) }),
+      openAdvancedAudioDialog({
+        api,
+        store: store2,
+        onStatus: (t, k) => statusbar.showMessage(t, k),
+        onMonitorGesture: () => audioMonitor.unlock(),
+      }),
   });
 
   const transitions = new TransitionsPanel({
@@ -627,7 +642,12 @@ function buildUi() {
         break;
 
       case 'advancedAudio':
-        await openAdvancedAudioDialog({ api, store: store2, onStatus: statusMessage });
+        await openAdvancedAudioDialog({
+          api,
+          store: store2,
+          onStatus: statusMessage,
+          onMonitorGesture: () => audioMonitor.unlock(),
+        });
         break;
 
       case 'editTransform':
@@ -1238,6 +1258,7 @@ function buildUi() {
     sourceToolbar.update(store.state);
     statsPanel.update(store.state);
     preview.render();
+    audioMonitor.sync(store.state, host);
     syncCustomDocks();
     applyLayoutFlags();
   }
@@ -1249,6 +1270,9 @@ function buildUi() {
       sourceToolbar.update(state);
     }
     if (topics.has(Topic.Audio) || topics.has(Topic.Inputs)) mixer.update(state, topics);
+    if (topics.has(Topic.Audio) || topics.has(Topic.Inputs) || topics.has(Topic.Connection)) {
+      audioMonitor.sync(state, host);
+    }
     if (topics.has(Topic.Transitions) || topics.has(Topic.Ui)) transitions.update(state);
     if (topics.has(Topic.Outputs)) controls.update(state);
     if (topics.has(Topic.Stats) || topics.has(Topic.Outputs) || topics.has(Topic.Video)) {
@@ -1287,6 +1311,7 @@ function buildUi() {
   return {
     statusbar,
     preview,
+    audioMonitor,
     scenes,
     sources,
     mixer,
@@ -1327,6 +1352,7 @@ function buildUi() {
     dispose() {
       clearInterval(statusTimer);
       clearInterval(statsTimer);
+      audioMonitor.destroy();
       preview.destroy();
       menuBar.destroy();
     },
