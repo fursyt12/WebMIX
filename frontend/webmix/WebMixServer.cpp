@@ -25,6 +25,7 @@
 #include "WebMixPreview.hpp"
 #include "WebMixRemux.hpp"
 #include "WebMixStartup.hpp"
+#include "WebMixUpdater.hpp"
 #include "WebMixWebSocket.hpp"
 
 #include "OBSApp.hpp"
@@ -46,6 +47,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QUrl>
+#include <QUuid>
 #include <QTimer>
 
 #include <obs-frontend-api.h>
@@ -273,6 +275,7 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 			      address == QHostAddress(QHostAddress::AnyIPv6);
 	const QHostAddress reachable = wildcard ? QHostAddress(QHostAddress::LocalHost) : address;
 	url = QStringLiteral("http://%1:%2/").arg(reachable.toString()).arg(server->serverPort());
+	bootId = QUuid::createUuid().toString(QUuid::WithoutBraces);
 	WebMixAuth::Start(server->serverPort());
 
 	/* Browsers on this machine need no sign-in; every other one signs in with
@@ -316,6 +319,9 @@ bool WebMixServer::Start(const QString &host, quint16 port)
 
 	WebMixControl::Start();
 	WebMixAudio::Start();
+	if (web_mode) {
+		WebMixUpdater::Start(address.toString(), server->serverPort());
+	}
 	keepAlive = new QTimer(this);
 	keepAlive->setInterval(15000);
 	connect(keepAlive, &QTimer::timeout, this, &WebMixServer::PingEventStreams);
@@ -333,6 +339,8 @@ void WebMixServer::Stop()
 
 	/* A remux runs on its own thread and must not outlive libobs. */
 	WebMixRemux::Shutdown();
+	/* Stop any background update check/download worker before tearing down control events. */
+	WebMixUpdater::Shutdown();
 	/* Neither may the preview captures: they hold GPU resources. */
 	WebMixPreview::Shutdown();
 	/* Nor the audio monitor mixer, which holds source capture callbacks. */
@@ -800,7 +808,8 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 								 server->serverAddress().toString(),
 								 server->serverPort(), error);
 			}
-			if (ok && (requestData.contains("openBrowser") || requestData.contains("startStreaming"))) {
+			if (ok && (requestData.contains("openBrowser") || requestData.contains("startStreaming") ||
+				   requestData.contains("autoCheckUpdates"))) {
 				if (requestData.contains("openBrowser")) {
 					config_set_bool(appConfig, "General", "WebOpenBrowser",
 							requestData.value("openBrowser").toBool());
@@ -809,9 +818,16 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 					config_set_bool(appConfig, "General", "WebStartStreaming",
 							requestData.value("startStreaming").toBool());
 				}
+				if (requestData.contains("autoCheckUpdates")) {
+					config_set_bool(appConfig, "General", "WebAutoCheckUpdates",
+							requestData.value("autoCheckUpdates").toBool());
+				}
 				ok = config_save_safe(appConfig, "tmp", nullptr) == CONFIG_SUCCESS;
 				if (!ok) {
 					error = QStringLiteral("Could not save global.ini.");
+				} else if (requestData.contains("autoCheckUpdates") && web_mode) {
+					WebMixUpdater::OnAutoCheckChanged(
+						requestData.value("autoCheckUpdates").toBool());
 				}
 			}
 		} else if (method != "GET" && method != "HEAD") {
@@ -830,9 +846,72 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		/* --no-browser for every launch; the command-line flag still wins. */
 		state["openBrowser"] = config_get_bool(appConfig, "General", "WebOpenBrowser");
 		state["startStreaming"] = config_get_bool(appConfig, "General", "WebStartStreaming");
+		state["autoCheckUpdates"] = config_get_bool(appConfig, "General", "WebAutoCheckUpdates");
 		state["address"] =
 			QStringLiteral("%1:%2").arg(server->serverAddress().toString()).arg(server->serverPort());
 		SendJson(socket, QJsonDocument(state).toJson(QJsonDocument::Compact), ok ? 200 : 400);
+		return;
+	}
+
+	/* --- Browser-only self-updater (WebMixUpdater) ------------------------- */
+	if (path == "/api/update" || path.startsWith(QLatin1String("/api/update/"))) {
+		if (!web_mode) {
+			SendError(socket, 404, "Updater is only active in web mode");
+			return;
+		}
+		if (path == "/api/update" && (method == "GET" || method == "HEAD")) {
+			SendJson(socket, QJsonDocument(WebMixUpdater::State()).toJson(QJsonDocument::Compact));
+			return;
+		}
+		if (method != "POST") {
+			SendError(socket, 405, "Method not allowed");
+			return;
+		}
+
+		const QJsonObject requestData =
+			QJsonDocument::fromJson(request.mid(request.indexOf("\r\n\r\n") + 4)).object();
+		QString error;
+		bool ok = true;
+		int status = 200;
+
+		if (path == "/api/update/check") {
+			WebMixUpdater::Check(true);
+		} else if (path == "/api/update/skip") {
+			ok = WebMixUpdater::SkipVersion(requestData.value("version").toString(), error);
+			if (!ok) {
+				status = 400;
+			}
+		} else if (path == "/api/update/install") {
+			const int activeRemux = WebMixRemux::ActiveCount();
+			if (activeRemux > 0 && !requestData.value("force").toBool() &&
+			    QueryValue(query, "force") != QLatin1String("1")) {
+				QJsonObject conflict = WebMixUpdater::State();
+				conflict["ok"] = false;
+				conflict["activeRemux"] = activeRemux;
+				conflict["error"] = QStringLiteral("a remux is in progress");
+				SendJson(socket, QJsonDocument(conflict).toJson(QJsonDocument::Compact), 409);
+				return;
+			}
+			ok = WebMixUpdater::Install(requestData.value("password").toString(), error);
+			if (!ok) {
+				status = 400;
+			}
+		} else {
+			SendError(socket, 404, "Unknown update endpoint");
+			return;
+		}
+
+		QJsonObject result = WebMixUpdater::State();
+		result["ok"] = ok;
+		if (!ok) {
+			result["error"] = error;
+			if (error != QLatin1String("sudo-password-required") &&
+			    error != QLatin1String("invalid-sudo-password")) {
+				blog(LOG_WARNING, "[WebMIX] %s failed: %s", qUtf8Printable(path),
+				     qUtf8Printable(error));
+			}
+		}
+		SendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact), status);
 		return;
 	}
 
@@ -1026,6 +1105,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		status["web"] = true;
 		status["webRoot"] = webRoot;
 		status["version"] = QString::fromUtf8(obs_get_version_string());
+		status["bootId"] = bootId;
 		/* The native control channel: the page talks to libobs directly,
 		 * with no obs-websocket and no second port. */
 		status["obsControl"] = true;
@@ -1048,6 +1128,7 @@ void WebMixServer::HandleRequest(QTcpSocket *socket, const QByteArray &request)
 		status["operations"] = true;
 		status["fileAccess"] = true;
 		status["remux"] = true;
+		status["updater"] = web_mode;
 		SendJson(socket, QJsonDocument(status).toJson(QJsonDocument::Compact));
 		return;
 	}

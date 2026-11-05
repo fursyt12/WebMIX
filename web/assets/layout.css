@@ -2704,3 +2704,159 @@ body.obs-app {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------------- Help > Check For Updates (UI) */
+
+.obs-menubar-trailing {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--obs-padding-large);
+}
+
+.obs-menubar-update-badge {
+  height: 22px;
+  padding: 0 var(--obs-padding-large);
+  border: var(--obs-border-width) solid var(--obs-primary-light);
+  border-radius: var(--obs-radius);
+  background: var(--obs-primary);
+  color: var(--obs-text-light, #FFFFFF);
+  font: inherit;
+  font-size: 12px;
+  font-weight: var(--obs-font-weight-bold);
+  cursor: pointer;
+}
+
+.obs-menubar-update-badge:hover {
+  background: var(--obs-primary-light);
+}
+
+.obs-update-dialog .obs-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-large);
+}
+
+.obs-update-intro {
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.obs-update-summary {
+  color: var(--obs-text-muted);
+}
+
+.obs-update-changelog {
+  min-height: 240px;
+  max-height: 360px;
+  padding: var(--obs-padding-xlarge);
+  background: var(--obs-panel-bg);
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+  overflow-y: auto;
+  line-height: 1.45;
+  user-select: text;
+}
+
+.obs-update-heading {
+  margin: 0 0 var(--obs-padding-base) 0;
+  font-weight: var(--obs-font-weight-bold);
+}
+
+.obs-update-changelog > .obs-update-heading:not(:first-child) {
+  margin-top: var(--obs-padding-xlarge);
+}
+
+.obs-update-p {
+  margin: 0 0 var(--obs-padding-large) 0;
+}
+
+.obs-update-list {
+  margin: 0 0 var(--obs-padding-large) 0;
+  padding-left: 20px;
+}
+
+.obs-update-list > li {
+  margin-bottom: var(--obs-padding-base);
+}
+
+.obs-update-hr {
+  border: 0;
+  border-top: var(--obs-border-width) solid var(--obs-border);
+  margin: var(--obs-padding-xlarge) 0;
+}
+
+.obs-update-code {
+  padding: 1px 4px;
+  background: var(--obs-window-bg);
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.obs-update-pre {
+  margin: 0 0 var(--obs-padding-large) 0;
+  padding: var(--obs-padding-large);
+  background: var(--obs-window-bg);
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.obs-update-link {
+  color: var(--obs-primary-light);
+}
+
+.obs-update-sudo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--obs-padding-base);
+}
+
+.obs-update-progress {
+  position: relative;
+  height: 10px;
+  background: var(--obs-panel-bg);
+  border: var(--obs-border-width) solid var(--obs-border);
+  border-radius: var(--obs-radius);
+  overflow: hidden;
+}
+
+.obs-update-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--obs-primary);
+  transition: width 150ms linear;
+}
+
+@keyframes obs-update-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+.obs-update-progress.is-indeterminate > .obs-update-progress-fill {
+  width: 40% !important;
+  transition: none;
+  animation: obs-update-indeterminate 1.2s linear infinite;
+}
+
+.obs-update-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--obs-padding-large);
+  width: 100%;
+}
+
+.obs-update-footer-left,
+.obs-update-footer-right {
+  display: flex;
+  align-items: center;
+  gap: var(--obs-padding-large);
+}

@@ -52,9 +52,15 @@ target_sources(
     webmix/WebMixServer.hpp
     webmix/WebMixStartup.cpp
     webmix/WebMixStartup.hpp
+    webmix/WebMixUpdater.cpp
+    webmix/WebMixUpdater.hpp
     webmix/WebMixWebSocket.cpp
     webmix/WebMixWebSocket.hpp
 )
+
+if(DEFINED WEBMIX_PACKAGE_NAME AND WEBMIX_PACKAGE_NAME STREQUAL "webmix")
+  target_compile_definitions(obs-studio PRIVATE WEBMIX_PACKAGED_BUILD)
+endif()
 
 # Let a build-tree run of OBS find the frontend without installation.
 file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/web" WEBMIX_WEB_DIR)

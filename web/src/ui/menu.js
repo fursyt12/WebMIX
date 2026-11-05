@@ -199,6 +199,8 @@ export const MENU_TREE = [
           { id: 'actionViewCurrentLog', label: '&View Current Log', action: 'viewCurrentLog' },
         ],
       },
+      sep(),
+      { id: 'actionCheckForUpdates', label: 'Check For &Updates', action: 'checkForUpdates' },
       { id: 'actionRestartSafe', label: 'Restart in Safe Mode', action: 'restartSafe' },
       sep(),
       { id: 'actionReleaseNotes', label: 'Release Notes', action: 'releaseNotes' },
@@ -223,6 +225,7 @@ export class MenuBar {
     this.openMenuId = null;
     this.popup = null;
     this.activeSubmenu = null;
+    this.trailing = h('div.obs-menubar-trailing');
     this.#bindGlobal();
   }
 
@@ -266,6 +269,7 @@ export class MenuBar {
       });
       this.root.appendChild(button);
     }
+    this.root.appendChild(this.trailing);
     if (this.handlers.isChecked) this.syncChecks();
   }
 

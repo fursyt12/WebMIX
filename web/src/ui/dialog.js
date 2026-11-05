@@ -23,6 +23,7 @@ let openDialogs = [];
  * @returns {{el: HTMLElement, close: (reason?: string) => void, body: HTMLElement, footer: HTMLElement}}
  */
 export function openDialog({ title, body, footer, width = 520, height = null, closable = true, onClose, className = '' }) {
+  let isClosable = closable;
   const backdrop = h('div.obs-modal-backdrop');
   const dialog = h(`div.obs-dialog${className ? `.${className}` : ''}`, {
     role: 'dialog',
@@ -40,7 +41,7 @@ export function openDialog({ title, body, footer, width = 520, height = null, cl
         'aria-label': 'Close',
         title: 'Close',
         text: '\u2715',
-        on: { click: () => close('close') },
+        on: { click: () => { if (isClosable) close('close'); } },
       })
     : null;
   if (closeBtn) titleBar.appendChild(closeBtn);
@@ -63,10 +64,10 @@ export function openDialog({ title, body, footer, width = 520, height = null, cl
   const previousFocus = document.activeElement;
 
   const onBackdropDown = (event) => {
-    if (event.target === backdrop && closable) close('backdrop');
+    if (event.target === backdrop && isClosable) close('backdrop');
   };
   const onKey = (event) => {
-    if (event.key === 'Escape' && closable) {
+    if (event.key === 'Escape' && isClosable) {
       event.stopPropagation();
       close('escape');
     }
@@ -80,16 +81,25 @@ export function openDialog({ title, body, footer, width = 520, height = null, cl
     closed = true;
     releaseFocus();
     backdrop.remove();
-    openDialogs = openDialogs.filter((d) => d !== close);
+    openDialogs = openDialogs.filter((d) => d !== guardedClose);
     previousFocus?.focus?.();
     onClose?.(reason);
   }
 
-  openDialogs.push(close);
+  function guardedClose(reason = 'close') {
+    if (isClosable) close(reason);
+  }
+
+  function setClosable(next) {
+    isClosable = !!next;
+    if (closeBtn) closeBtn.hidden = !isClosable;
+  }
+
+  openDialogs.push(guardedClose);
   const focusTarget = dialog.querySelector('input, select, textarea, button:not(.obs-dialog-close)') ?? dialog;
   setTimeout(() => focusTarget.focus?.(), 0);
 
-  return { el: dialog, body: bodyEl, footer: footerEl, close };
+  return { el: dialog, body: bodyEl, footer: footerEl, close, setClosable };
 }
 
 /** Close the top-most dialog (used by the Escape handler). */

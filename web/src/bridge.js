@@ -204,4 +204,27 @@ export async function actOnPluginWindow(request) {
   return postJson('api/plugins/act', request);
 }
 
+/* ------------------------------------------------------------------ updater */
+
+/** Current self-update state (`GET /api/update`), or null without the updater. */
+export async function fetchUpdateState() {
+  const data = await get('api/update');
+  return data && typeof data.state === 'string' ? data : null;
+}
+
+/** Trigger an explicit update check (`Help > Check For Updates`). */
+export async function checkForUpdates() {
+  return postJson('api/update/check', {});
+}
+
+/** Persist `[General] WebSkippedUpdateVersion` in global.ini. */
+export async function skipUpdateVersion(version) {
+  return postJson('api/update/skip', { version: version ?? '' });
+}
+
+/** Download (if needed), SHA-256-verify, install and restart WebMIX. */
+export async function installUpdate({ password = '', force = false } = {}) {
+  return postJson('api/update/install', { password, force });
+}
+
 export { notAvailable as bridgeUnavailable };

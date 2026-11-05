@@ -970,6 +970,12 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
       t('WebMix.Startup.StartStreaming', { fallback: 'Start streaming when OBS starts' }),
       !!startup.startStreaming
     );
+    const autoUpdates = checkRow(
+      t('Basic.Settings.General.EnableAutoUpdates', {
+        fallback: 'Automatically check for updates on startup',
+      }),
+      startup.autoCheckUpdates !== false
+    );
 
     body.append(
       h('div.obs-group-title', { text: 'WebMIX', raw: true }),
@@ -984,6 +990,11 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
         noBrowser.row,
         startStreaming.row,
       ]),
+      h('div.obs-group-title', {
+        text: t('Basic.Settings.General.Updater', { fallback: 'Updates' }),
+        raw: true,
+      }),
+      h('div.obs-settings-group', {}, [autoUpdates.row]),
       h('div.obs-dialog-actions', {}, [
         h('button.obs-btn.primary', {
           type: 'button',
@@ -993,6 +1004,7 @@ export async function openSettingsDialog({ api, store, onStatus, onSaved }) {
               const changes = {
                 openBrowser: !noBrowser.input.checked,
                 startStreaming: startStreaming.input.checked,
+                autoCheckUpdates: autoUpdates.input.checked,
               };
               if (startup.autostartSupported) changes.autostart = autostart.input.checked;
               const result = await saveStartupSettings(changes);

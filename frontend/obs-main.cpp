@@ -24,6 +24,7 @@
 #include <utility/BaseLexer.hpp>
 #include <utility/OBSTranslator.hpp>
 #include <utility/platform.hpp>
+#include <webmix/WebMixUpdater.hpp>
 
 #include <qt-wrappers.hpp>
 #include <util/platform.h>
@@ -33,6 +34,9 @@
 #include <util/windows/win-version.h>
 #endif
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFontDatabase>
 #include <QProcess>
 #include <QPushButton>
@@ -46,7 +50,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <signal.h>
+#include <unistd.h>
 #endif
 
 using namespace std;
@@ -89,6 +95,7 @@ bool opt_minimize_tray = false;
 bool opt_allow_opengl = false;
 bool opt_always_on_top = false;
 bool opt_disable_updater = false;
+bool opt_cli_disable_updater = false;
 bool opt_disable_missing_files_check = false;
 string opt_starting_collection;
 string opt_starting_profile;
@@ -570,10 +577,9 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 			 * prompt, which would otherwise block an unattended start. */
 			opt_disable_missing_files_check = true;
 
-			/* Same reason: the updater asks before it installs, and an
-			 * unattended instance has nobody to answer and no visible window
-			 * to show the prompt in. Web-mode installs are updated by
-			 * replacing them. */
+			/* Same reason: OBS's desktop updater opens a native window and an
+			 * interactive installer, which an unattended instance cannot answer.
+			 * Web mode runs WebMixUpdater in the browser instead. */
 			opt_disable_updater = true;
 
 			if (!opt_web_port_set) {
@@ -1138,6 +1144,7 @@ int main(int argc, char *argv[])
 
 		} else if (arg_is(argv[i], "--disable-updater", nullptr)) {
 			opt_disable_updater = true;
+			opt_cli_disable_updater = true;
 
 		} else if (arg_is(argv[i], "--disable-missing-files-check", nullptr)) {
 			opt_disable_missing_files_check = true;
@@ -1202,8 +1209,10 @@ int main(int argc, char *argv[])
 	}
 
 	if (!opt_disable_updater) {
-		opt_disable_updater = os_file_exists(BASE_PATH "/disable_updater") ||
+		const bool disabled = os_file_exists(BASE_PATH "/disable_updater") ||
 				      os_file_exists(BASE_PATH "/disable_updater.txt");
+		opt_disable_updater = disabled;
+		opt_cli_disable_updater = opt_cli_disable_updater || disabled;
 	}
 
 	if (!opt_disable_missing_files_check) {
@@ -1232,8 +1241,57 @@ int main(int argc, char *argv[])
 	base_set_log_handler(nullptr, nullptr);
 
 	if (restart || restart_safe) {
-		auto executable = arguments.takeFirst();
-		QProcess::startDetached(executable, arguments);
+		QString updateExecutable;
+		QStringList updateArgs;
+		if (WebMixUpdater::TakePendingRestart(updateExecutable, updateArgs)) {
+			logFile.close();
+			curl_global_cleanup();
+#ifndef _WIN32
+			/* Ensure no inherited descriptors (such as the single-instance
+			 * socket or plugin fds) survive execv into the restarted binary. */
+			const QFileInfoList fdEntries =
+				QDir(QStringLiteral("/proc/self/fd")).entryInfoList(QDir::NoDotAndDotDot);
+			if (!fdEntries.isEmpty()) {
+				for (const QFileInfo &entry : fdEntries) {
+					bool ok = false;
+					const int fd = entry.fileName().toInt(&ok);
+					if (ok && fd >= 3) {
+						const int flags = fcntl(fd, F_GETFD);
+						if (flags >= 0) {
+							fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+						}
+					}
+				}
+			} else {
+				const long maxFd = sysconf(_SC_OPEN_MAX);
+				const int limit = maxFd > 0 && maxFd < 65536 ? static_cast<int>(maxFd) : 4096;
+				for (int fd = 3; fd < limit; ++fd) {
+					const int flags = fcntl(fd, F_GETFD);
+					if (flags >= 0) {
+						fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+					}
+				}
+			}
+
+			std::vector<QByteArray> encodedArgs;
+			encodedArgs.reserve(static_cast<size_t>(updateArgs.size()) + 1);
+			encodedArgs.push_back(QFile::encodeName(updateExecutable));
+			for (const QString &arg : updateArgs) {
+				encodedArgs.push_back(arg.toUtf8());
+			}
+			std::vector<char *> execArgv;
+			execArgv.reserve(encodedArgs.size() + 1);
+			for (QByteArray &entry : encodedArgs) {
+				execArgv.push_back(entry.data());
+			}
+			execArgv.push_back(nullptr);
+			execv(encodedArgs.front().constData(), execArgv.data());
+#endif
+			QProcess::startDetached(updateExecutable, updateArgs);
+		} else {
+			auto executable = arguments.takeFirst();
+			QProcess::startDetached(executable, arguments);
+		}
 	}
 
 	return ret;

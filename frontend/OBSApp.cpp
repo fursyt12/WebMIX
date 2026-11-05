@@ -458,6 +458,8 @@ bool OBSApp::InitGlobalConfigDefaults()
 	 * turns this off for autostart entries and scripts. */
 	config_set_default_bool(appConfig, "General", "WebOpenBrowser", true);
 	config_set_default_bool(appConfig, "General", "WebStartStreaming", false);
+	config_set_default_bool(appConfig, "General", "WebAutoCheckUpdates", true);
+	config_set_default_string(appConfig, "General", "WebSkippedUpdateVersion", "");
 	config_set_default_int(appConfig, "General", "WebPort", 4456);
 	config_set_default_string(appConfig, "General", "WebHost", "127.0.0.1");
 

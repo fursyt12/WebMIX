@@ -61,6 +61,7 @@ test('key OBS menu entries are present with their shortcuts', () => {
   assert.equal(find('toggleStatusBar').checked, true);
   assert.equal(find('resetUI').label, '&Reset UI');
   assert.equal(find('stats').label, 'Stats');
+  assert.equal(find('actionCheckForUpdates').action, 'checkForUpdates');
   assert.equal(plain(find('docks').label), 'Docks');
 });
 
@@ -96,6 +97,7 @@ test('all UI modules import cleanly without a DOM', async () => {
     '../src/ui/multiview.js',
     '../src/ui/access.js',
     '../src/ui/websocket.js',
+    '../src/ui/updater.js',
     '../src/ui/plugin-windows.js',
     '../src/access.js',
     '../src/login.js',

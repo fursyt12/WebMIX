@@ -32,6 +32,7 @@ import { openFilesDialog } from './ui/files.js';
 import { openRemuxDialog } from './ui/remux.js';
 import { openAccessDialog } from './ui/access.js';
 import { openWebSocketSettingsDialog } from './ui/websocket.js';
+import { UpdaterController, UPDATE_STATE_EVENT } from './ui/updater.js';
 import {
   PluginWindows,
   PLUGIN_WINDOWS_EVENT,
@@ -248,6 +249,7 @@ function wireClient(connection) {
 
   client.on('disconnected', ({ code, reason }) => {
     store.setConnection({ status: 'disconnected', error: reason || `code ${code}` });
+    ui?.updater.onDisconnected();
     ui?.statusbar.showMessage(`Disconnected from OBS (code ${code}). Reconnecting...`, 'error', 0);
   });
 
@@ -268,6 +270,7 @@ function wireClient(connection) {
 
   client.on(PLUGIN_WINDOWS_EVENT, (eventData) => ui?.pluginWindows.handle(eventData));
   client.on(OPEN_URL_EVENT, (eventData) => ui?.pluginWindows.openUrl(eventData));
+  client.on(UPDATE_STATE_EVENT, (eventData) => ui?.updater.handleState(eventData));
 
   client.on('protocolError', (message) => {
     console.warn('[webmix] protocol error:', message);
@@ -547,6 +550,12 @@ function buildUi() {
       }
       return [];
     },
+  });
+
+  const updater = new UpdaterController({
+    store: store2,
+    badgeSlot: menuBar.trailing,
+    onStatus: (text, kind, ms) => statusbar.showMessage(text, kind, ms),
   });
 
   /* --------------------------------------------------------- action handler */
@@ -838,8 +847,11 @@ function buildUi() {
       case 'discord':
         window.open('https://obsproject.com/discord', '_blank', 'noopener');
         break;
+      case 'checkForUpdates':
+        await updater.triggerManualCheck();
+        break;
       case 'releaseNotes':
-        window.open('https://github.com/obsproject/obs-studio/releases', '_blank', 'noopener');
+        window.open('https://github.com/fursyt12/WebMIX/releases', '_blank', 'noopener');
         break;
 
       case 'openPluginManager':
@@ -1321,6 +1333,7 @@ function buildUi() {
     customDocks,
     menuBar,
     pluginWindows,
+    updater,
     /** Run a menu action by id (used by the browser smoke test and bookmarks). */
     dispatch: (action) => handleAction(action),
     /** Pick the preview backend (WebGPU when OBS streams frames) and repaint. */
@@ -1334,24 +1347,28 @@ function buildUi() {
         pluginWindows.loadTools().catch(() => {});
         pluginWindows.refresh();
       }
-      /* Which backend the browser ended up with decides how smooth the preview
-       * is, and it is not something the user can guess - so say it once. */
-      statusbar.showMessage(`Preview: ${preview.backendLabel}`, 'info', 8000);
-      /* And a moment later, what the host is actually delivering - the number
-       * the user needs when the preview feels slow. */
-      preview
-        .measureDelivery()
-        .then((fps) => {
-          if (fps !== null) {
-            statusbar.showMessage(`Preview: ${preview.backendLabel} — ${fps} fps from OBS`, 'info', 8000);
-          }
-        })
-        .catch(() => { /* the label in the context menu still works */ });
+      const showedUpdateNotice = await updater.start(host).catch(() => false);
+      if (!showedUpdateNotice) {
+        /* Which backend the browser ended up with decides how smooth the preview
+         * is, and it is not something the user can guess - so say it once. */
+        statusbar.showMessage(`Preview: ${preview.backendLabel}`, 'info', 8000);
+        /* And a moment later, what the host is actually delivering - the number
+         * the user needs when the preview feels slow. */
+        preview
+          .measureDelivery()
+          .then((fps) => {
+            if (fps !== null) {
+              statusbar.showMessage(`Preview: ${preview.backendLabel} — ${fps} fps from OBS`, 'info', 8000);
+            }
+          })
+          .catch(() => { /* the label in the context menu still works */ });
+      }
     },
     refreshAll,
     dispose() {
       clearInterval(statusTimer);
       clearInterval(statsTimer);
+      updater.destroy();
       audioMonitor.destroy();
       preview.destroy();
       menuBar.destroy();

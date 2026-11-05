@@ -48,7 +48,9 @@ export async function detectHost(base = '') {
       audioStream: data.audioStream === true,
       propertySchema: data.propertySchema === true,
       remux: data.remux === true,
+      updater: data.updater === true,
       version: data.version,
+      bootId: data.bootId,
       webRoot: data.webRoot,
     };
   } catch {

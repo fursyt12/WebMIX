@@ -106,6 +106,7 @@ private:
 	QTcpServer *server = nullptr;
 	QString webRoot;
 	QString url;
+	QString bootId;
 
 	/*! Live event streams, and the WebMixControl subscription each one owns. */
 	QHash<QTcpSocket *, quint64> eventStreams;
