@@ -9,30 +9,20 @@ stops an unattended start.
 
 ## What is new
 
-* **Plugins in the browser.** The Tools menu now has the entries plugins add -
-  DistroAV's NDI® output settings, the Output Timer, the Automatic Scene
-  Switcher - and the Plugin Manager works from the browser too. Their windows
-  open in the page: OBS opens the plugin's own window, keeps it off screen and
-  draws the same form in the browser, so the plugin fills it in, checks it and
-  applies it exactly as on the desktop. Message boxes and file dialogs those
-  windows open follow them. (A plugin's sources and filters already showed up
-  by themselves.)
-* **Nothing on the desktop in web mode.** No window OBS or a plugin shows
-  reaches the screen or takes the keyboard any more - not a plugin's warning,
-  not OBS's own "could not start the stream". They come up in every open page
-  and wait to be answered there; one that comes up while OBS is still starting
-  is answered no, so it cannot hold the start up, and the browser is told what
-  it said once it connects. Windows OBS keeps hidden can no longer take focus
-  either (OBS used to activate its hidden main window when it loaded saved
-  projectors), links and folders plugins open go to the browser, the crash
-  handler saves its log without a message box, and OBS's own browser docks and
-  "What's New" page are not loaded. Projectors still open on their monitor,
-  without taking focus.
-* **Fixed:** OBS crashed when a browser gave up on a request while OBS was
-  showing a message box about it.
+* **Browser-only audio monitoring.** Turning monitoring on for an audio source
+  (the headphones button in the Audio Mixer, or **Advanced Audio Properties**)
+  now plays that source exclusively in open WebMIX browser tabs (`GET /api/audio`)
+  and never out of the host computer's speakers. Because monitoring stays OBS's
+  own state, every open tab hears the monitored mix together and stops as soon
+  as monitoring is turned off.
+* **Settings > General: start streaming on launch.** *Start streaming when OBS
+  starts* (`[General] WebStartStreaming=true` in `global.ini`) automatically
+  starts the configured stream as soon as OBS and the WebMIX server come up.
+* **Fixed:** `InputAudioMonitorTypeChanged` on the native control channel read
+  the previous monitoring state before `libobs` updated the source flag.
 
-The previous release (0.6.0) added sign-in for other computers, obs-websocket's
-settings in the browser and starting with the computer.
+The previous release (0.7.0) brought plugins' Tools windows into the browser
+and kept all OBS and plugin dialogs off the desktop in web mode.
 
 ## Downloads
 
@@ -79,7 +69,7 @@ obs --no-web                  # the classic OBS window instead
 
 To start WebMIX with the computer, tick *Start WebMIX when I sign in to this
 computer* in **Settings > General**; *Don't open the browser when OBS starts*
-in the same place does what `--no-browser` does, for every launch.
+and *Start streaming when OBS starts* in the same place apply on every launch.
 
 On a normal launch OBS asks which address and port to serve on — the addresses
 are the ones this machine actually has — and then opens the page in the default
@@ -88,8 +78,9 @@ without asking.
 
 Web mode implies `--disable-missing-files-check`, keeps the window hidden,
 creates no tray icon and enables obs-websocket so other clients can connect too.
-The remembered address and the browser behaviour live in `global.ini` under
-`[General]` (`WebAskOnStartup`, `WebHost`, `WebPort`, `WebOpenBrowser`);
+The remembered address and startup behaviour live in `global.ini` under
+`[General]` (`WebAskOnStartup`, `WebHost`, `WebPort`, `WebOpenBrowser`,
+`WebStartStreaming`);
 `--startrecording` / `--startstreaming` start an output immediately. The updater
 is disabled as well: it prompts before installing, and a window-less instance
 has nowhere to show that prompt - web-mode installs are updated by replacing
