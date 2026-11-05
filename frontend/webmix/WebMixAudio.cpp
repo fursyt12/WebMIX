@@ -576,8 +576,7 @@ private:
 
 			/* 10 ms slices (480 frames at 48 kHz, 441 frames at 44.1 kHz). */
 			const uint16_t chunkFrames = static_cast<uint16_t>(std::max<uint32_t>(1, sampleRate / 100));
-			const uint64_t intervalNs =
-				(static_cast<uint64_t>(chunkFrames) * 1000000000ULL) / sampleRate;
+			const uint64_t intervalNs = (static_cast<uint64_t>(chunkFrames) * 1000000000ULL) / sampleRate;
 
 			const uint64_t now = os_gettime_ns();
 			if (nextTickNs == 0 || now > nextTickNs + 50000000ULL) {
