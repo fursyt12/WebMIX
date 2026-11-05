@@ -9,20 +9,25 @@ stops an unattended start.
 
 ## What is new
 
-* **Browser-only audio monitoring.** Turning monitoring on for an audio source
-  (the headphones button in the Audio Mixer, or **Advanced Audio Properties**)
-  now plays that source exclusively in open WebMIX browser tabs (`GET /api/audio`)
-  and never out of the host computer's speakers. Because monitoring stays OBS's
-  own state, every open tab hears the monitored mix together and stops as soon
-  as monitoring is turned off.
-* **Settings > General: start streaming on launch.** *Start streaming when OBS
-  starts* (`[General] WebStartStreaming=true` in `global.ini`) automatically
-  starts the configured stream as soon as OBS and the WebMIX server come up.
-* **Fixed:** `InputAudioMonitorTypeChanged` on the native control channel read
-  the previous monitoring state before `libobs` updated the source flag.
+* **Browser-only update system.** WebMIX checks GitHub releases in the
+  background on startup and presents updates exclusively in the browser
+  interface — never opening a desktop prompt on the host machine. The update
+  dialog renders the release changelog with **Update Now**, **Remind me Later**
+  (leaving an **Update X.Y.Z** badge in the menu bar), and **Skip Version**.
+* **Verified self-update and automatic restart.** Release packages pre-download
+  in the background while outputs are idle, verify their SHA-256 checksum
+  against `SHA256SUMS`, install in place (`.zip` on Windows, `.deb` on
+  Debian/Ubuntu, `.pkg.tar.zst` on Arch Linux, asking for the `sudo` password in
+  the browser when required), and automatically restart WebMIX on the same
+  `--web-host` and `--web-port` (`--no-browser`). Open browser tabs wait for the
+  new instance to come up and reload into the updated version automatically.
+* **Help > Check For Updates & startup setting.** Trigger a check manually at
+  any time from **Help > Check For Updates**, or control automatic startup
+  checks in **Settings > General > Automatically check for updates on startup**
+  (`[General] WebAutoCheckUpdates` in `global.ini`).
 
-The previous release (0.7.0) brought plugins' Tools windows into the browser
-and kept all OBS and plugin dialogs off the desktop in web mode.
+The previous release (0.8.0) brought browser-only audio monitoring and automatic
+stream start on launch.
 
 ## Downloads
 
@@ -80,11 +85,11 @@ Web mode implies `--disable-missing-files-check`, keeps the window hidden,
 creates no tray icon and enables obs-websocket so other clients can connect too.
 The remembered address and startup behaviour live in `global.ini` under
 `[General]` (`WebAskOnStartup`, `WebHost`, `WebPort`, `WebOpenBrowser`,
-`WebStartStreaming`);
-`--startrecording` / `--startstreaming` start an output immediately. The updater
-is disabled as well: it prompts before installing, and a window-less instance
-has nowhere to show that prompt - web-mode installs are updated by replacing
-them.
+`WebStartStreaming`, `WebAutoCheckUpdates`, `WebSkippedUpdateVersion`);
+`--startrecording` / `--startstreaming` start an output immediately. OBS's
+desktop updater stays off in web mode; instead, WebMIX checks for releases,
+shows the changelog, installs the update and restarts itself directly from the
+browser (`--disable-updater` turns update checks off completely).
 
 Browsers on other computers sign in with the login from **Tools > Web
 Interface Access** (until one is set, only this computer can use the
